@@ -30,6 +30,9 @@ USBIPD_BUSID ?= 1-2
 #                    10  US915 HYBRID
 LORAWAN_REGION ?= 9
 
+# Node ID for this instance — passed as a compiler define.
+NODE_ID ?= ab01
+
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION)
 
 .PHONY: all compile upload monitor clean
@@ -40,6 +43,8 @@ compile:
 	arduino-cli compile \
 		--fqbn "$(FQBN_FULL)" \
 		--build-path "$(BUILD_DIR)" \
+		--build-property 'compiler.c.extra_flags=-DNODE_ID="$(NODE_ID)"' \
+		--build-property 'compiler.cpp.extra_flags=-DNODE_ID="$(NODE_ID)"' \
 		"$(SKETCH)"
 
 upload: compile

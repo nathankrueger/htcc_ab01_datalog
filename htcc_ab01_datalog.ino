@@ -5,7 +5,10 @@
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
+#ifndef NODE_ID
 #define NODE_ID                  "ab01"
+#endif
+
 #define SEND_INTERVAL_MS         5000      /* 5 s between sensor reads */
 
 #define RF_FREQUENCY             915000000  /* Hz */
