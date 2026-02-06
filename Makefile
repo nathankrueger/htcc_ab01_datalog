@@ -10,6 +10,7 @@
 #   make LORAWAN_REGION=6                # switch to EU868
 #   make upload PORT=/dev/ttyUSB1        # use a different serial port
 #   make upload USBIPD_BUSID=2-3         # use a different USB bus ID
+#   make VERBOSE=1                       # show detailed compilation output
 
 SKETCH    = htcc_ab01_datalog.ino
 FQBN      = CubeCell:CubeCell:CubeCell-Board-V2
@@ -21,6 +22,10 @@ BUILD_DIR = build
 # The bind step (one-time, see README) must be done before first use.
 USBIPD_BUSID ?= 1-2
 
+# Verbose mode — set VERBOSE=1 to see detailed compilation output
+VERBOSE ?= 0
+VERBOSE_FLAG = $(if $(filter 1,$(VERBOSE)),--verbose,)
+
 # LoRaWAN region — default matches the 915 MHz frequency in the sketch.
 #   0  AS923 (AS1)    5  EU433
 #   1  AS923 (AS2)    6  EU868
@@ -30,8 +35,15 @@ USBIPD_BUSID ?= 1-2
 #                    10  US915 HYBRID
 LORAWAN_REGION ?= 9
 
-# Node ID for this instance — passed as a compiler define.
+# Parameters for this instance — passed as compiler defines.
 NODE_ID ?= ab01
+SEND_INTERVAL_MS ?= 5000
+
+# List of defines to pass to the compiler (add new ones here)
+DEFINES = NODE_ID SEND_INTERVAL_MS
+
+# Generate build properties for each define (both C and C++)
+DEFINE_FLAGS = $(foreach def,$(DEFINES),--build-property 'compiler.c.extra_flags=-D$(def)="$($(def))"' --build-property 'compiler.cpp.extra_flags=-D$(def)="$($(def))"')
 
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION)
 
@@ -43,8 +55,8 @@ compile:
 	arduino-cli compile \
 		--fqbn "$(FQBN_FULL)" \
 		--build-path "$(BUILD_DIR)" \
-		--build-property 'compiler.c.extra_flags=-DNODE_ID="$(NODE_ID)"' \
-		--build-property 'compiler.cpp.extra_flags=-DNODE_ID="$(NODE_ID)"' \
+		$(VERBOSE_FLAG) \
+		$(DEFINE_FLAGS) \
 		"$(SKETCH)"
 
 upload: compile
@@ -68,6 +80,7 @@ upload: compile
 		--fqbn "$(FQBN_FULL)" \
 		--port "$(PORT)" \
 		--build-path "$(BUILD_DIR)" \
+		$(VERBOSE_FLAG) \
 		"$(SKETCH)"
 
 monitor:

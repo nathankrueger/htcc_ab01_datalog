@@ -9,8 +9,11 @@
 #define NODE_ID                  "ab01"
 #endif
 
-#define SEND_INTERVAL_MS         5000      /* 5 s between sensor reads */
+#ifndef SEND_INTERVAL_MS
+#define SEND_INTERVAL_MS        5000/* 5 s between sensor reads */
+#endif
 
+#define SEND_INTERVAL_MS         5000      
 #define RF_FREQUENCY             915000000  /* Hz */
 #define TX_OUTPUT_POWER          14         /* dBm */
 #define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
