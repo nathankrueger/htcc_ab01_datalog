@@ -38,12 +38,21 @@ LORAWAN_REGION ?= 9
 # Parameters for this instance — passed as compiler defines.
 NODE_ID ?= ab01
 SEND_INTERVAL_MS ?= 5000
+LED_BRIGHTNESS ?= 64
 
-# List of defines to pass to the compiler (add new ones here)
-DEFINES = NODE_ID SEND_INTERVAL_MS
+# String defines (will be quoted)
+STRING_DEFINES = NODE_ID
+# Numeric defines (no quotes)
+NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS
 
-# Generate build properties for each define (both C and C++)
-DEFINE_FLAGS = $(foreach def,$(DEFINES),--build-property 'compiler.c.extra_flags=-D$(def)="$($(def))"' --build-property 'compiler.cpp.extra_flags=-D$(def)="$($(def))"')
+# Build the combined define strings for C and C++ flags
+# String defines get quotes, numeric defines don't
+STRING_DEFS = $(foreach def,$(STRING_DEFINES),-D$(def)=\"$($(def))\")
+NUMERIC_DEFS = $(foreach def,$(NUMERIC_DEFINES),-D$(def)=$($(def)))
+ALL_DEFS = $(STRING_DEFS) $(NUMERIC_DEFS)
+
+# Combine into single build properties (one for C, one for C++)
+DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS)" --build-property "compiler.cpp.extra_flags=$(ALL_DEFS)"
 
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION)
 

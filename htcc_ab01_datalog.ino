@@ -3,6 +3,7 @@
 #include "hw.h"
 #include <Adafruit_BME280.h>
 #include "packets.h"
+#include "CubeCell_NeoPixel.h"
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
@@ -14,7 +15,10 @@
 #define SEND_INTERVAL_MS        5000/* 5 s between sensor reads */
 #endif
 
-#define SEND_INTERVAL_MS         5000      
+#ifndef LED_BRIGHTNESS
+#define LED_BRIGHTNESS          128          /* 0-255, default brightness */
+#endif
+
 #define RF_FREQUENCY             915000000  /* Hz */
 #define TX_OUTPUT_POWER          14         /* dBm */
 #define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
@@ -24,7 +28,7 @@
 #define LORA_SYMBOL_TIMEOUT      0
 #define LORA_FIX_LENGTH_PAYLOAD_ON  false
 #define LORA_IQ_INVERSION_ON     false
-#define RX_WINDOW_MS             500        /* RX window after each TX */
+#define RX_WINDOW_MS             3000       /* RX window after each TX */
 
 /* Must match LORA_MAX_PAYLOAD in utils/protocol.py */
 #define LORA_MAX_PAYLOAD         250
@@ -41,11 +45,9 @@
 /* CRC-32, Reading, buildSensorPacket, CommandPacket, parseCommand,
  * buildAckPacket are all in packets.h */
 
-/* ─── LED Pin Definitions ────────────────────────────────────────────────── */
+/* ─── LED Control (NeoPixel) ─────────────────────────────────────────────── */
 
-#define RGB_RED    GPIO0
-#define RGB_GREEN  GPIO1
-#define RGB_BLUE   GPIO2
+CubeCell_NeoPixel rgbLed(1, RGB, NEO_GRB + NEO_KHZ800);
 
 typedef enum {
     LED_OFF = 0,
@@ -77,49 +79,70 @@ static float c_to_f(float c) { return c * 9.0f / 5.0f + 32.0f; }
 
 /* ─── LED Control Functions ──────────────────────────────────────────────── */
 
-static void ledSetRGB(bool red, bool green, bool blue)
-{
-    digitalWrite(RGB_RED, red ? HIGH : LOW);
-    digitalWrite(RGB_GREEN, green ? HIGH : LOW);
-    digitalWrite(RGB_BLUE, blue ? HIGH : LOW);
-}
-
 static void ledSetColor(LEDColor color)
 {
+    uint32_t c;
+    uint8_t brightness = LED_BRIGHTNESS;
     switch (color) {
         case LED_OFF:
-            ledSetRGB(false, false, false);
+            c = rgbLed.Color(0, 0, 0);
             break;
         case LED_RED:
-            ledSetRGB(true, false, false);
+            c = rgbLed.Color(brightness, 0, 0);
             break;
         case LED_GREEN:
-            ledSetRGB(false, true, false);
+            c = rgbLed.Color(0, brightness, 0);
             break;
         case LED_BLUE:
-            ledSetRGB(false, false, true);
+            c = rgbLed.Color(0, 0, brightness);
             break;
         case LED_YELLOW:
-            ledSetRGB(true, true, false);
+            c = rgbLed.Color(brightness, brightness, 0);
             break;
         case LED_CYAN:
-            ledSetRGB(false, true, true);
+            c = rgbLed.Color(0, brightness, brightness);
             break;
         case LED_MAGENTA:
-            ledSetRGB(true, false, true);
+            c = rgbLed.Color(brightness, 0, brightness);
             break;
         case LED_WHITE:
-            ledSetRGB(true, true, true);
+            c = rgbLed.Color(brightness, brightness, brightness);
+            break;
+        default:
+            c = rgbLed.Color(0, 0, 0);
             break;
     }
+    rgbLed.setPixelColor(0, c);
+    rgbLed.show();
 }
 
 static void ledInit(void)
 {
-    pinMode(RGB_RED, OUTPUT);
-    pinMode(RGB_GREEN, OUTPUT);
-    pinMode(RGB_BLUE, OUTPUT);
-    ledSetRGB(false, false, false);
+    rgbLed.begin();
+    rgbLed.clear();
+    rgbLed.show();
+}
+
+static void ledTest(void)
+{
+    const char* colorNames[] = {
+        "RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA", "WHITE"
+    };
+    LEDColor colors[] = {
+        LED_RED, LED_GREEN, LED_BLUE, LED_YELLOW, LED_CYAN, LED_MAGENTA, LED_WHITE
+    };
+    const int numColors = 7;
+
+    Serial.println("LED Test: Cycling through all colors...");
+
+    for (int i = 0; i < numColors; i++) {
+        Serial.printf("  %s\n", colorNames[i]);
+        ledSetColor(colors[i]);
+        delay(2000);
+    }
+
+    ledSetColor(LED_OFF);
+    Serial.println("LED Test: Complete\n");
 }
 
 /* ─── Command Handlers ───────────────────────────────────────────────────── */
@@ -181,21 +204,37 @@ static void onTxDone(void)
 
 static void onRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
+    Serial.printf("RX: Got packet! size=%d rssi=%d snr=%d\n", size, rssi, snr);
     if (size > 0 && size <= LORA_MAX_PAYLOAD) {
         memcpy(rxBuffer, payload, size);
         rxLen = size;
         rxDone = true;
+
+        /* Try to print as string */
+        Serial.printf("RX: Payload: %.*s\n", size, payload);
+
+        /* Also print first 32 bytes as hex for debugging */
+        Serial.print("RX: Hex: ");
+        for (int i = 0; i < size && i < 32; i++) {
+            Serial.printf("%02x ", payload[i]);
+        }
+        if (size > 32) Serial.print("...");
+        Serial.println();
+    } else {
+        Serial.printf("RX: Invalid size %d\n", size);
     }
     Radio.Sleep();
 }
 
 static void onRxTimeout(void)
 {
+    Serial.println("RX: Timeout");
     Radio.Sleep();
 }
 
 static void onRxError(void)
 {
+    Serial.println("RX: Error");
     Radio.Sleep();
 }
 
@@ -232,7 +271,7 @@ void setup(void)
                       LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
                       true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
 
-    /* RX config */
+    /* RX config - CRC enabled to match gateway */
     Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
                       LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
                       LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
@@ -242,6 +281,11 @@ void setup(void)
     cmdRegistryInit(&cmdRegistry, NODE_ID);
     cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY);
     cmdRegister(&cmdRegistry, "blink", handleBlink, CMD_SCOPE_ANY);
+
+    Serial.printf("Initialization complete for Node: %s\n", NODE_ID);
+
+    /* Test LED */
+    // ledTestBlink();
 }
 
 void loop(void)
@@ -345,17 +389,34 @@ void loop(void)
     }
 
     /* ── Open RX window for commands ── */
+    Serial.printf("Opening RX window for %d ms...\n", RX_WINDOW_MS);
     rxDone = false;
     rxLen = 0;
     Radio.Rx(RX_WINDOW_MS);
 
     unsigned long rxStart = millis();
-    while ((millis() - rxStart) < RX_WINDOW_MS + 50) {
+    bool commandReceived = false;
+
+    while ((millis() - rxStart) < RX_WINDOW_MS + 50 && !commandReceived) {
         Radio.IrqProcess();
 
         if (rxDone) {
+            Serial.println("RX: Processing received packet");
+
+            /* Skip padding bytes - find first '{' character */
+            uint8_t *jsonStart = rxBuffer;
+            int jsonLen = rxLen;
+            for (int i = 0; i < rxLen && i < 8; i++) {
+                if (rxBuffer[i] == '{') {
+                    jsonStart = &rxBuffer[i];
+                    jsonLen = rxLen - i;
+                    break;
+                }
+            }
+
             CommandPacket cmd;
-            if (parseCommand(rxBuffer, rxLen, &cmd)) {
+            if (parseCommand(jsonStart, jsonLen, &cmd)) {
+                Serial.printf("RX: Valid command parsed: %s\n", cmd.cmd);
                 /* Check if for us (or broadcast) */
                 if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
                     Serial.printf("CMD: %s (from %s)\n",
@@ -381,14 +442,34 @@ void loop(void)
 
                     /* Dispatch to registered handlers */
                     cmdDispatch(&cmdRegistry, &cmd);
+                    commandReceived = true;  /* Exit loop after handling command */
+                } else {
+                    Serial.printf("RX: Command not for us (node_id='%s', our id='%s')\n",
+                                  cmd.node_id, NODE_ID);
                 }
+            } else {
+                Serial.println("RX: Not a command packet, continuing to listen...");
             }
+
+            /* Reset flags and restart RX if we haven't received our command yet */
             rxDone = false;
             rxLen = 0;
-            break;  /* Exit RX window after handling command */
+
+            if (!commandReceived) {
+                /* Continue listening - restart RX for remaining time */
+                unsigned long remaining = RX_WINDOW_MS + 50 - (millis() - rxStart);
+                if (remaining > 10) {
+                    Radio.Rx(remaining);
+                    Serial.printf("RX: Restarting RX for %lu ms...\n", remaining);
+                }
+            }
         }
 
         delay(1);
+    }
+
+    if (!commandReceived) {
+        Serial.println("RX: Window closed, no command received");
     }
 
     Radio.Sleep();
