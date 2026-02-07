@@ -5,6 +5,22 @@
 #include "packets.h"
 #include "CubeCell_NeoPixel.h"
 
+/* ─── Debug Output ──────────────────────────────────────────────────────── */
+
+#ifndef DEBUG
+#define DEBUG 1
+#endif
+
+#if DEBUG
+  #define DBG(fmt, ...)  Serial.printf(fmt, ##__VA_ARGS__)
+  #define DBGLN(msg)     Serial.println(msg)
+  #define DBGP(msg)      Serial.print(msg)
+#else
+  #define DBG(fmt, ...)  ((void)0)
+  #define DBGLN(msg)     ((void)0)
+  #define DBGP(msg)      ((void)0)
+#endif
+
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
 #ifndef NODE_ID
@@ -171,23 +187,23 @@ static void ledTest(void)
     };
     const int numColors = 7;
 
-    Serial.println("LED Test: Cycling through all colors...");
+    DBGLN("LED Test: Cycling through all colors...");
 
     for (int i = 0; i < numColors; i++) {
-        Serial.printf("  %s\n", colorNames[i]);
+        DBG("  %s\n", colorNames[i]);
         ledSetColor(colors[i]);
         delay(2000);
     }
 
     ledSetColor(LED_OFF);
-    Serial.println("LED Test: Complete\n");
+    DBGLN("LED Test: Complete\n");
 }
 
 /* ─── Command Handlers ───────────────────────────────────────────────────── */
 
 static void handlePing(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
-    Serial.println("PING received");
+    DBGLN("PING received");
 }
 
 static LEDColor parseColor(const char *colorStr)
@@ -207,24 +223,24 @@ static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
 {
     /* Require at least the color argument */
     if (arg_count < 1) {
-        Serial.println("BLINK: missing color argument");
+        DBGLN("BLINK: missing color argument");
         return;
     }
 
     /* Parse color */
     LEDColor color = parseColor(args[0]);
-    Serial.printf("BLINK: color=%s", args[0]);
+    DBG("BLINK: color=%s", args[0]);
 
     /* Parse optional seconds argument (default 0.5s) */
     float seconds = 0.5f;
     if (arg_count >= 2) {
         seconds = strtof(args[1], NULL);
         if (seconds <= 0.0f) {
-            Serial.println(" ERROR: invalid seconds value");
+            DBGLN(" ERROR: invalid seconds value");
             return;
         }
     }
-    Serial.printf(" seconds=%.2f\n", seconds);
+    DBG(" seconds=%.2f\n", seconds);
 
     /* Blink the LED */
     ledSetColor(color);
@@ -235,20 +251,20 @@ static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
 static void handleRxDuty(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 1) {
-        Serial.printf("RXDUTY: current=%d%% (window=%lums)\n",
+        DBG("RXDUTY: current=%d%% (window=%lums)\n",
                       rxDutyPercent, getRxWindowMs());
         return;
     }
 
     int newDuty = atoi(args[0]);
     if (newDuty < 0 || newDuty > 100) {
-        Serial.printf("RXDUTY: ERROR value %d out of range (0-100)\n", newDuty);
+        DBG("RXDUTY: ERROR value %d out of range (0-100)\n", newDuty);
         return;
     }
 
     int oldDuty = rxDutyPercent;
     rxDutyPercent = newDuty;
-    Serial.printf("RXDUTY: %d%% -> %d%% (window=%lums)\n",
+    DBG("RXDUTY: %d%% -> %d%% (window=%lums)\n",
                   oldDuty, rxDutyPercent, getRxWindowMs());
 }
 
@@ -262,37 +278,37 @@ static void onTxDone(void)
 
 static void onRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
-    Serial.printf("RX: Got packet! size=%d rssi=%d snr=%d\n", size, rssi, snr);
+    DBG("RX: Got packet! size=%d rssi=%d snr=%d\n", size, rssi, snr);
     if (size > 0 && size <= LORA_MAX_PAYLOAD) {
         memcpy(rxBuffer, payload, size);
         rxLen = size;
         rxDone = true;
 
         /* Try to print as string */
-        Serial.printf("RX: Payload: %.*s\n", size, payload);
+        DBG("RX: Payload: %.*s\n", size, payload);
 
         /* Also print first 32 bytes as hex for debugging */
-        Serial.print("RX: Hex: ");
+        DBGP("RX: Hex: ");
         for (int i = 0; i < size && i < 32; i++) {
-            Serial.printf("%02x ", payload[i]);
+            DBG("%02x ", payload[i]);
         }
-        if (size > 32) Serial.print("...");
-        Serial.println();
+        if (size > 32) DBGP("...");
+        DBGLN();
     } else {
-        Serial.printf("RX: Invalid size %d\n", size);
+        DBG("RX: Invalid size %d\n", size);
     }
     Radio.Sleep();
 }
 
 static void onRxTimeout(void)
 {
-    Serial.println("RX: Timeout");
+    DBGLN("RX: Timeout");
     Radio.Sleep();
 }
 
 static void onRxError(void)
 {
-    Serial.println("RX: Error");
+    DBGLN("RX: Error");
     Radio.Sleep();
 }
 
@@ -312,7 +328,7 @@ void setup(void)
     /* BME280 — try both common I2C addresses */
     bmeOk = bme.begin(0x76);
     if (!bmeOk) bmeOk = bme.begin(0x77);
-    if (!bmeOk) Serial.println("ERROR: BME280 not found on 0x76 or 0x77");
+    if (!bmeOk) DBGLN("ERROR: BME280 not found on 0x76 or 0x77");
 
     /* LoRa — register callbacks */
     radioEvents.TxDone = onTxDone;
@@ -341,7 +357,7 @@ void setup(void)
     cmdRegister(&cmdRegistry, "blink", handleBlink, CMD_SCOPE_ANY);
     cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY);
 
-    Serial.printf("Initialization complete for Node: %s\n", NODE_ID);
+    DBG("Initialization complete for Node: %s\n", NODE_ID);
 
     /* Test LED */
     // ledTestBlink();
@@ -352,7 +368,7 @@ void loop(void)
     unsigned long cycleStart = millis();
 
     if (!bmeOk) {
-        Serial.println("BME280 not available — retrying...");
+        DBGLN("BME280 not available — retrying...");
         bmeOk = bme.begin(0x76);
         if (!bmeOk) bmeOk = bme.begin(0x77);
         delay(CYCLE_PERIOD_MS);
@@ -368,7 +384,7 @@ void loop(void)
     if (isnan(tempF) || isinf(tempF) ||
         isnan(pressure) || isinf(pressure) ||
         isnan(humidity) || isinf(humidity)) {
-        Serial.println("ERROR: BME280 returned NaN/Inf, skipping");
+        DBGLN("ERROR: BME280 returned NaN/Inf, skipping");
         delay(CYCLE_PERIOD_MS);
         return;
     }
@@ -378,7 +394,7 @@ void loop(void)
     pressure  = roundf(pressure  * 100.0f) / 100.0f;  /* 2 dp */
     humidity  = roundf(humidity  * 10.0f)  / 10.0f;   /* 1 dp */
 
-    Serial.printf("T=%.1f F  P=%.2f hPa  H=%.1f %%\n",
+    DBG("T=%.1f F  P=%.2f hPa  H=%.1f %%\n",
                   tempF, pressure, humidity);
 
     /*
@@ -425,7 +441,7 @@ void loop(void)
         }
 
         if (end == start) {
-            Serial.printf("ERROR: reading \"%s\" alone exceeds max payload\n",
+            DBG("ERROR: reading \"%s\" alone exceeds max payload\n",
                           readings[start].name);
             start++;
             continue;
@@ -434,7 +450,7 @@ void loop(void)
         /* Send and wait for TX completion */
         txDone = false;
         Radio.Send((uint8_t *)pkt, pLen);
-        Serial.printf("Sent %d/%d readings [%d bytes]\n",
+        DBG("Sent %d/%d readings [%d bytes]\n",
                       end - start, NUM_READINGS, pLen);
 
         /* Wait for TX to complete (with timeout) */
@@ -453,7 +469,7 @@ void loop(void)
     unsigned long rxWindowMs = getRxWindowMs();
 
     if (rxWindowMs > 0) {
-        Serial.printf("Opening RX window for %lu ms on G2N (%.1f MHz)...\n",
+        DBG("Opening RX window for %lu ms on G2N (%.1f MHz)...\n",
                       rxWindowMs, RF_G2N_FREQUENCY / 1e6);
 
         /* Switch to G2N channel for command reception */
@@ -473,7 +489,7 @@ void loop(void)
             Radio.IrqProcess();
 
             if (rxDone) {
-                Serial.println("RX: Processing received packet");
+                DBGLN("RX: Processing received packet");
 
                 /* Skip padding bytes - find first '{' character */
                 uint8_t *jsonStart = rxBuffer;
@@ -488,10 +504,10 @@ void loop(void)
 
                 CommandPacket cmd;
                 if (parseCommand(jsonStart, jsonLen, &cmd)) {
-                    Serial.printf("RX: Valid command parsed: %s\n", cmd.cmd);
+                    DBG("RX: Valid command parsed: %s\n", cmd.cmd);
                     /* Check if for us (or broadcast) */
                     if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
-                        Serial.printf("CMD: %s (from %s)\n",
+                        DBG("CMD: %s (from %s)\n",
                                       cmd.cmd,
                                       cmd.node_id[0] ? cmd.node_id : "broadcast");
 
@@ -506,7 +522,7 @@ void loop(void)
 
                             txDone = false;
                             Radio.Send((uint8_t *)ackBuf, ackLen);
-                            Serial.printf("ACK sent on N2G [%d bytes]\n", ackLen);
+                            DBG("ACK sent on N2G [%d bytes]\n", ackLen);
 
                             /* Wait for ACK TX completion */
                             unsigned long ackStart = millis();
@@ -525,11 +541,11 @@ void loop(void)
                         cmdDispatch(&cmdRegistry, &cmd);
                         commandReceived = true;  /* Exit loop after handling command */
                     } else {
-                        Serial.printf("RX: Command not for us (node_id='%s', our id='%s')\n",
+                        DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
                                       cmd.node_id, NODE_ID);
                     }
                 } else {
-                    Serial.println("RX: Not a command packet, continuing to listen...");
+                    DBGLN("RX: Not a command packet, continuing to listen...");
                 }
 
                 /* Reset flags - radio stays in continuous RX mode */
@@ -541,14 +557,14 @@ void loop(void)
         }
 
         if (!commandReceived) {
-            Serial.println("RX: Window closed, no command received");
+            DBGLN("RX: Window closed, no command received");
         }
 
         /* Switch back to N2G for next sensor TX */
         Radio.Sleep();
         Radio.SetChannel(RF_N2G_FREQUENCY);
     } else {
-        Serial.println("RX disabled (rxDutyPercent=0)");
+        DBGLN("RX disabled (rxDutyPercent=0)");
         Radio.Sleep();
     }
 

@@ -53,11 +53,12 @@ LORAWAN_REGION ?= 9
 NODE_ID ?= ab01
 SEND_INTERVAL_MS ?= 5000
 LED_BRIGHTNESS ?= 64
+DEBUG ?= 1
 
 # String defines (will be quoted)
 STRING_DEFINES = NODE_ID
 # Numeric defines (no quotes)
-NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS
+NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG
 
 # Build the combined define strings for C and C++ flags
 # String defines get quotes, numeric defines don't
