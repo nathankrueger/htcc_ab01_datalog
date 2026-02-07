@@ -112,6 +112,9 @@ static bool bmeOk = false;
 /* RX duty cycle - adjustable at runtime via "rxduty" command */
 static int rxDutyPercent = RX_DUTY_PERCENT_DEFAULT;
 
+/* Last processed command ID for duplicate detection */
+static char lastCommandId[32] = "";
+
 /* Calculate RX window duration based on current duty cycle */
 static inline unsigned long getRxWindowMs(void)
 {
@@ -507,9 +510,17 @@ void loop(void)
                     DBG("RX: Valid command parsed: %s\n", cmd.cmd);
                     /* Check if for us (or broadcast) */
                     if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
-                        DBG("CMD: %s (from %s)\n",
+                        /* Build command ID for dedup check */
+                        char commandId[32];
+                        snprintf(commandId, sizeof(commandId), "%u_%.4s",
+                                 cmd.timestamp, cmd.crc);
+                        bool isDuplicate = (strcmp(commandId, lastCommandId) == 0);
+
+                        DBG("CMD: %s (from %s, id=%s%s)\n",
                                       cmd.cmd,
-                                      cmd.node_id[0] ? cmd.node_id : "broadcast");
+                                      cmd.node_id[0] ? cmd.node_id : "broadcast",
+                                      commandId,
+                                      isDuplicate ? ", DUP" : "");
 
                         /* Build and send ACK on N2G channel */
                         char ackBuf[128];
@@ -537,8 +548,16 @@ void loop(void)
                             Radio.Rx(0);
                         }
 
-                        /* Dispatch to registered handlers */
-                        cmdDispatch(&cmdRegistry, &cmd);
+                        /* Dispatch to registered handlers (skip duplicates) */
+                        if (isDuplicate) {
+                            DBG("CMD: Duplicate %s, ACK sent but skipping dispatch\n",
+                                          commandId);
+                        } else {
+                            strncpy(lastCommandId, commandId,
+                                    sizeof(lastCommandId) - 1);
+                            lastCommandId[sizeof(lastCommandId) - 1] = '\0';
+                            cmdDispatch(&cmdRegistry, &cmd);
+                        }
                         commandReceived = true;  /* Exit loop after handling command */
                     } else {
                         DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
