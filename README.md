@@ -4,6 +4,8 @@ Arduino sketch for the Heltec CubeCell HTCC-AB01. Reads a BME280 sensor
 (temperature, pressure, humidity) and broadcasts compact JSON packets over
 LoRa to a gateway running `gateway_server.py` on a Raspberry Pi Zero 2 W.
 
+See: https://heltec.org/project/htcc-ab01-v2/
+
 ## Architecture
 
 ```

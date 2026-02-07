@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Arduino sketch for the Heltec CubeCell HTCC-AB01 (ASR650x MCU). Reads BME280 sensor data (temperature, pressure, humidity) and broadcasts compact JSON packets over LoRa to a gateway on a Raspberry Pi Zero 2 W. Supports bidirectional communication via a dual-channel LoRa architecture.
 
+See: See: https://heltec.org/project/htcc-ab01-v2/
+
 ## Build Commands
 
 ```sh
