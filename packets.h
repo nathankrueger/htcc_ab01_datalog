@@ -407,13 +407,14 @@ static inline int buildAckPacket(char *buf, size_t bufCap,
 
     uint32_t crc = crc32_compute(crcBuf, cLen);
 
-    /* Build final packet with CRC (sorted keys): c < id < n < t */
-    int pLen = snprintf(buf, bufCap,
+    /* Build final packet with padding for ASR650x TX-FIFO workaround */
+    buf[0] = buf[1] = buf[2] = buf[3] = ' ';
+    int pLen = snprintf(buf + 4, bufCap - 4,
                         "{\"c\":\"%08x\",\"id\":\"%s\",\"n\":\"%s\",\"t\":\"ack\"}",
                         crc, commandId, nodeId);
 
-    if (pLen <= 0 || pLen >= (int)bufCap) return 0;
-    return pLen;
+    if (pLen <= 0 || pLen >= (int)(bufCap - 4)) return 0;
+    return pLen + 4;
 }
 
 /* ─── Command Callback Registry ──────────────────────────────────────────── */
