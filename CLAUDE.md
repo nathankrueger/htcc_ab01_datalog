@@ -27,6 +27,10 @@ make VERBOSE=1                        # Detailed compilation output
 
 There are no tests. The build system uses `arduino-cli` (not PlatformIO).
 
+## Platform Support
+
+The Makefile and install.sh must work on both **WSL Ubuntu** and **macOS**. The Makefile uses `uname -s` for platform detection (serial port defaults, USB passthrough). Any changes to build scripts or install logic must be verified against both platforms.
+
 ## Companion Repository
 
 The gateway/dashboard project (`data_log`) is typically located at `../data_log` relative to this repo. The gateway server is at `../data_log/gateway_server.py`. Protocol changes (packet format, CRC, sensor class IDs) often require coordinated changes across both repos. If `../data_log` doesn't exist, ask the user where their `data_log` repo is located.
