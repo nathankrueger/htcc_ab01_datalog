@@ -9,13 +9,27 @@
 # Override defaults on the command line, e.g.:
 #   make LORAWAN_REGION=6                # switch to EU868
 #   make upload PORT=/dev/ttyUSB1        # use a different serial port
-#   make upload USBIPD_BUSID=2-3         # use a different USB bus ID
+#   make upload USBIPD_BUSID=2-3         # use a different USB bus ID (WSL only)
 #   make VERBOSE=1                       # show detailed compilation output
 
 SKETCH    = htcc_ab01_datalog.ino
 FQBN      = CubeCell:CubeCell:CubeCell-Board-V2
-PORT     ?= /dev/ttyUSB0
 BUILD_DIR = build
+
+# ─── Platform detection ──────────────────────────────────────────────────────
+UNAME_S := $(shell uname -s)
+
+ifeq ($(UNAME_S),Darwin)
+  # macOS: auto-detect USB serial port if not specified
+  PORT ?= $(shell ls /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null | head -1)
+  ifeq ($(PORT),)
+    # No device found — set a placeholder that will trigger a helpful error
+    PORT = __no_device_found__
+  endif
+else
+  # Linux (including WSL)
+  PORT ?= /dev/ttyUSB0
+endif
 
 # usbipd bus ID for WSL USB passthrough.  Find yours with:
 #   powershell> usbipd list
@@ -69,6 +83,20 @@ compile:
 		"$(SKETCH)"
 
 upload: compile
+ifeq ($(UNAME_S),Darwin)
+	@# macOS: USB devices work directly — just check if port exists
+	@if [ ! -c "$(PORT)" ]; then \
+	  echo "ERROR: Serial port not found."; \
+	  echo ""; \
+	  echo "Available USB serial ports:"; \
+	  ls /dev/cu.usbserial-* /dev/cu.SLAB_USBtoUART /dev/cu.wchusbserial* 2>/dev/null || echo "  (none found)"; \
+	  echo ""; \
+	  echo "Make sure your device is plugged in, then run:"; \
+	  echo "  make upload PORT=/dev/cu.usbserial-XXXX"; \
+	  exit 1; \
+	fi
+else
+	@# Linux/WSL: attempt usbipd attach if port not found
 	@if [ ! -c "$(PORT)" ]; then \
 	  echo "$(PORT) not found — running usbipd attach (busid $(USBIPD_BUSID))..."; \
 	  powershell.exe -Command "usbipd attach --wsl --busid $(USBIPD_BUSID)" || true; \
@@ -85,6 +113,7 @@ upload: compile
 	    exit 1; \
 	  fi; \
 	fi
+endif
 	arduino-cli upload \
 		--fqbn "$(FQBN_FULL)" \
 		--port "$(PORT)" \

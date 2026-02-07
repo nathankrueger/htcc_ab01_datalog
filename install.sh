@@ -20,6 +20,14 @@ ARDUINO_CLI_VER="1.4.1"
 CUBECELL_URL="https://github.com/HelTecAutomation/CubeCell-Arduino/releases/download/V1.5.0/package_CubeCell_index.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# ─── platform detection ───────────────────────────────────────────────────────
+PLATFORM=""
+case "$(uname -s)" in
+    Darwin)  PLATFORM="macos" ;;
+    Linux)   PLATFORM="linux" ;;
+    *)       echo "Unsupported OS: $(uname -s)" >&2; exit 1 ;;
+esac
+
 # ─── helpers ──────────────────────────────────────────────────────────────────
 RED='\033[0;31m'  GREEN='\033[0;32m'  YELLOW='\033[1;33m'  NC='\033[0m'
 log()   { printf "${GREEN}[install]${NC} %s\n" "$*"; }
@@ -28,6 +36,8 @@ die()   { printf "${RED}[error]  ${NC} %s\n" "$*" >&2; exit 1; }
 
 FORCE=false
 [[ "${1:-}" == "--force" ]] && FORCE=true
+
+log "Detected platform: $PLATFORM"
 
 # ─── 1. arduino-cli ──────────────────────────────────────────────────────────
 if command -v arduino-cli &>/dev/null; then
@@ -121,3 +131,16 @@ arduino-cli compile \
 
 log ""
 log "Setup complete. Run 'make' to compile, 'make upload' to flash."
+
+# ─── platform-specific tips ──────────────────────────────────────────────────
+if [[ "$PLATFORM" == "macos" ]]; then
+    log ""
+    log "macOS tips:"
+    log "  - Serial port: ls /dev/cu.usbserial-* (use with make PORT=...)"
+    log "  - USB devices work directly — no usbipd required"
+elif [[ "$PLATFORM" == "linux" ]]; then
+    log ""
+    log "Linux/WSL tips:"
+    log "  - Default serial port: /dev/ttyUSB0"
+    log "  - For WSL USB passthrough, see README.md"
+fi
