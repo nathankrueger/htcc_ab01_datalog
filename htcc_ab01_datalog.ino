@@ -11,15 +11,43 @@
 #define NODE_ID                  "ab01"
 #endif
 
-#ifndef SEND_INTERVAL_MS
-#define SEND_INTERVAL_MS        5000/* 5 s between sensor reads */
+/*
+ * Timing / Power Configuration
+ *
+ * CYCLE_PERIOD_MS: Total time for one TX→RX→Sleep cycle
+ * rxDutyPercent: Percentage of cycle spent listening for commands (0-100)
+ *   - Higher = more reliable command reception, more power consumption
+ *   - Lower  = less power, commands may require more gateway retries
+ *   - 0      = TX-only mode, never listen for commands
+ *   - Can be changed at runtime via "rxduty" command
+ *
+ * Derived at runtime:
+ *   rxWindowMs = (CYCLE_PERIOD_MS - TX_TIME_MS) * rxDutyPercent / 100
+ */
+#ifndef CYCLE_PERIOD_MS
+#define CYCLE_PERIOD_MS          5000         /* Total cycle time */
 #endif
+
+#ifndef RX_DUTY_PERCENT_DEFAULT
+#define RX_DUTY_PERCENT_DEFAULT  90           /* 0-100, initial value */
+#endif
+
+#define TX_TIME_MS               200          /* Estimated TX time */
 
 #ifndef LED_BRIGHTNESS
-#define LED_BRIGHTNESS          128          /* 0-255, default brightness */
+#define LED_BRIGHTNESS           128          /* 0-255, default brightness */
 #endif
 
-#define RF_FREQUENCY             915000000  /* Hz */
+/*
+ * Dual-Channel Architecture for Command Reliability
+ *
+ * N2G (Node to Gateway): Sensor data broadcasts + Command ACKs
+ * G2N (Gateway to Node): Command packets only
+ *
+ * Node listens on G2N during RX window - no sensor interference!
+ */
+#define RF_N2G_FREQUENCY         915000000  /* Hz - sensors + ACKs */
+#define RF_G2N_FREQUENCY         915500000  /* Hz - commands */
 #define TX_OUTPUT_POWER          14         /* dBm */
 #define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
 #define LORA_SPREADING_FACTOR    7          /* SF7 */
@@ -28,7 +56,6 @@
 #define LORA_SYMBOL_TIMEOUT      0
 #define LORA_FIX_LENGTH_PAYLOAD_ON  false
 #define LORA_IQ_INVERSION_ON     false
-#define RX_WINDOW_MS             3000       /* RX window after each TX */
 
 /* Must match LORA_MAX_PAYLOAD in utils/protocol.py */
 #define LORA_MAX_PAYLOAD         250
@@ -65,6 +92,17 @@ typedef enum {
 static RadioEvents_t radioEvents;
 static Adafruit_BME280 bme;
 static bool bmeOk = false;
+
+/* RX duty cycle - adjustable at runtime via "rxduty" command */
+static int rxDutyPercent = RX_DUTY_PERCENT_DEFAULT;
+
+/* Calculate RX window duration based on current duty cycle */
+static inline unsigned long getRxWindowMs(void)
+{
+    if (rxDutyPercent <= 0) return 0;
+    if (rxDutyPercent > 100) return CYCLE_PERIOD_MS - TX_TIME_MS;
+    return ((unsigned long)(CYCLE_PERIOD_MS - TX_TIME_MS) * rxDutyPercent) / 100;
+}
 
 /* RX state */
 static uint8_t rxBuffer[LORA_MAX_PAYLOAD + 1];
@@ -194,6 +232,26 @@ static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
     ledSetColor(LED_OFF);
 }
 
+static void handleRxDuty(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    if (arg_count < 1) {
+        Serial.printf("RXDUTY: current=%d%% (window=%lums)\n",
+                      rxDutyPercent, getRxWindowMs());
+        return;
+    }
+
+    int newDuty = atoi(args[0]);
+    if (newDuty < 0 || newDuty > 100) {
+        Serial.printf("RXDUTY: ERROR value %d out of range (0-100)\n", newDuty);
+        return;
+    }
+
+    int oldDuty = rxDutyPercent;
+    rxDutyPercent = newDuty;
+    Serial.printf("RXDUTY: %d%% -> %d%% (window=%lums)\n",
+                  oldDuty, rxDutyPercent, getRxWindowMs());
+}
+
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
 
 static void onTxDone(void)
@@ -263,7 +321,7 @@ void setup(void)
     radioEvents.RxError = onRxError;
 
     Radio.Init(&radioEvents);
-    Radio.SetChannel(RF_FREQUENCY);
+    Radio.SetChannel(RF_N2G_FREQUENCY);  /* Start on N2G for sensor TX */
 
     /* TX config */
     Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
@@ -281,6 +339,7 @@ void setup(void)
     cmdRegistryInit(&cmdRegistry, NODE_ID);
     cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY);
     cmdRegister(&cmdRegistry, "blink", handleBlink, CMD_SCOPE_ANY);
+    cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY);
 
     Serial.printf("Initialization complete for Node: %s\n", NODE_ID);
 
@@ -290,11 +349,13 @@ void setup(void)
 
 void loop(void)
 {
+    unsigned long cycleStart = millis();
+
     if (!bmeOk) {
         Serial.println("BME280 not available — retrying...");
         bmeOk = bme.begin(0x76);
         if (!bmeOk) bmeOk = bme.begin(0x77);
-        delay(SEND_INTERVAL_MS);
+        delay(CYCLE_PERIOD_MS);
         return;
     }
 
@@ -308,7 +369,7 @@ void loop(void)
         isnan(pressure) || isinf(pressure) ||
         isnan(humidity) || isinf(humidity)) {
         Serial.println("ERROR: BME280 returned NaN/Inf, skipping");
-        delay(SEND_INTERVAL_MS);
+        delay(CYCLE_PERIOD_MS);
         return;
     }
 
@@ -388,95 +449,112 @@ void loop(void)
             delay(100);   /* brief gap between split packets */
     }
 
-    /* ── Open RX window for commands ── */
-    Serial.printf("Opening RX window for %d ms...\n", RX_WINDOW_MS);
-    rxDone = false;
-    rxLen = 0;
-    Radio.Rx(RX_WINDOW_MS);
+    /* ── Open RX window for commands on G2N channel ── */
+    unsigned long rxWindowMs = getRxWindowMs();
 
-    unsigned long rxStart = millis();
-    bool commandReceived = false;
+    if (rxWindowMs > 0) {
+        Serial.printf("Opening RX window for %lu ms on G2N (%.1f MHz)...\n",
+                      rxWindowMs, RF_G2N_FREQUENCY / 1e6);
 
-    while ((millis() - rxStart) < RX_WINDOW_MS + 50 && !commandReceived) {
-        Radio.IrqProcess();
+        /* Switch to G2N channel for command reception */
+        Radio.Sleep();
+        Radio.SetChannel(RF_G2N_FREQUENCY);
 
-        if (rxDone) {
-            Serial.println("RX: Processing received packet");
+        rxDone = false;
+        rxLen = 0;
 
-            /* Skip padding bytes - find first '{' character */
-            uint8_t *jsonStart = rxBuffer;
-            int jsonLen = rxLen;
-            for (int i = 0; i < rxLen && i < 8; i++) {
-                if (rxBuffer[i] == '{') {
-                    jsonStart = &rxBuffer[i];
-                    jsonLen = rxLen - i;
-                    break;
-                }
-            }
+        /* Use continuous RX mode - doesn't stop on packet reception */
+        Radio.Rx(0);
 
-            CommandPacket cmd;
-            if (parseCommand(jsonStart, jsonLen, &cmd)) {
-                Serial.printf("RX: Valid command parsed: %s\n", cmd.cmd);
-                /* Check if for us (or broadcast) */
-                if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
-                    Serial.printf("CMD: %s (from %s)\n",
-                                  cmd.cmd,
-                                  cmd.node_id[0] ? cmd.node_id : "broadcast");
+        unsigned long rxStart = millis();
+        bool commandReceived = false;
 
-                    /* Build and send ACK */
-                    char ackBuf[128];
-                    int ackLen = buildAckPacket(ackBuf, sizeof(ackBuf),
-                                                cmd.timestamp, cmd.crc, NODE_ID);
-                    if (ackLen > 0) {
-                        txDone = false;
-                        Radio.Send((uint8_t *)ackBuf, ackLen);
-                        Serial.printf("ACK sent [%d bytes]\n", ackLen);
+        while ((millis() - rxStart) < rxWindowMs && !commandReceived) {
+            Radio.IrqProcess();
 
-                        /* Wait for ACK TX completion */
-                        unsigned long ackStart = millis();
-                        while (!txDone && (millis() - ackStart) < 1000) {
-                            Radio.IrqProcess();
-                            delay(1);
-                        }
+            if (rxDone) {
+                Serial.println("RX: Processing received packet");
+
+                /* Skip padding bytes - find first '{' character */
+                uint8_t *jsonStart = rxBuffer;
+                int jsonLen = rxLen;
+                for (int i = 0; i < rxLen && i < 8; i++) {
+                    if (rxBuffer[i] == '{') {
+                        jsonStart = &rxBuffer[i];
+                        jsonLen = rxLen - i;
+                        break;
                     }
+                }
 
-                    /* Dispatch to registered handlers */
-                    cmdDispatch(&cmdRegistry, &cmd);
-                    commandReceived = true;  /* Exit loop after handling command */
+                CommandPacket cmd;
+                if (parseCommand(jsonStart, jsonLen, &cmd)) {
+                    Serial.printf("RX: Valid command parsed: %s\n", cmd.cmd);
+                    /* Check if for us (or broadcast) */
+                    if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
+                        Serial.printf("CMD: %s (from %s)\n",
+                                      cmd.cmd,
+                                      cmd.node_id[0] ? cmd.node_id : "broadcast");
+
+                        /* Build and send ACK on N2G channel */
+                        char ackBuf[128];
+                        int ackLen = buildAckPacket(ackBuf, sizeof(ackBuf),
+                                                    cmd.timestamp, cmd.crc, NODE_ID);
+                        if (ackLen > 0) {
+                            /* Switch to N2G for ACK transmission */
+                            Radio.Sleep();
+                            Radio.SetChannel(RF_N2G_FREQUENCY);
+
+                            txDone = false;
+                            Radio.Send((uint8_t *)ackBuf, ackLen);
+                            Serial.printf("ACK sent on N2G [%d bytes]\n", ackLen);
+
+                            /* Wait for ACK TX completion */
+                            unsigned long ackStart = millis();
+                            while (!txDone && (millis() - ackStart) < 1000) {
+                                Radio.IrqProcess();
+                                delay(1);
+                            }
+
+                            /* Switch back to G2N and resume RX */
+                            Radio.Sleep();
+                            Radio.SetChannel(RF_G2N_FREQUENCY);
+                            Radio.Rx(0);
+                        }
+
+                        /* Dispatch to registered handlers */
+                        cmdDispatch(&cmdRegistry, &cmd);
+                        commandReceived = true;  /* Exit loop after handling command */
+                    } else {
+                        Serial.printf("RX: Command not for us (node_id='%s', our id='%s')\n",
+                                      cmd.node_id, NODE_ID);
+                    }
                 } else {
-                    Serial.printf("RX: Command not for us (node_id='%s', our id='%s')\n",
-                                  cmd.node_id, NODE_ID);
+                    Serial.println("RX: Not a command packet, continuing to listen...");
                 }
-            } else {
-                Serial.println("RX: Not a command packet, continuing to listen...");
+
+                /* Reset flags - radio stays in continuous RX mode */
+                rxDone = false;
+                rxLen = 0;
             }
 
-            /* Reset flags and restart RX if we haven't received our command yet */
-            rxDone = false;
-            rxLen = 0;
-
-            if (!commandReceived) {
-                /* Continue listening - restart RX for remaining time */
-                unsigned long remaining = RX_WINDOW_MS + 50 - (millis() - rxStart);
-                if (remaining > 10) {
-                    Radio.Rx(remaining);
-                    Serial.printf("RX: Restarting RX for %lu ms...\n", remaining);
-                }
-            }
+            delay(1);
         }
 
-        delay(1);
+        if (!commandReceived) {
+            Serial.println("RX: Window closed, no command received");
+        }
+
+        /* Switch back to N2G for next sensor TX */
+        Radio.Sleep();
+        Radio.SetChannel(RF_N2G_FREQUENCY);
+    } else {
+        Serial.println("RX disabled (rxDutyPercent=0)");
+        Radio.Sleep();
     }
 
-    if (!commandReceived) {
-        Serial.println("RX: Window closed, no command received");
-    }
-
-    Radio.Sleep();
-
-    /* Wait remaining interval time */
-    unsigned long elapsed = millis() - rxStart;
-    if (elapsed < SEND_INTERVAL_MS) {
-        delay(SEND_INTERVAL_MS - elapsed);
+    /* Wait remaining cycle time */
+    unsigned long elapsed = millis() - cycleStart;
+    if (elapsed < CYCLE_PERIOD_MS) {
+        delay(CYCLE_PERIOD_MS - elapsed);
     }
 }
