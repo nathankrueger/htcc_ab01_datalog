@@ -41,6 +41,23 @@
 /* CRC-32, Reading, buildSensorPacket, CommandPacket, parseCommand,
  * buildAckPacket are all in packets.h */
 
+/* ─── LED Pin Definitions ────────────────────────────────────────────────── */
+
+#define RGB_RED    GPIO0
+#define RGB_GREEN  GPIO1
+#define RGB_BLUE   GPIO2
+
+typedef enum {
+    LED_OFF = 0,
+    LED_RED,
+    LED_GREEN,
+    LED_BLUE,
+    LED_YELLOW,      // Red + Green
+    LED_CYAN,        // Green + Blue
+    LED_MAGENTA,     // Red + Blue
+    LED_WHITE        // All on
+} LEDColor;
+
 /* ─── Globals ────────────────────────────────────────────────────────────── */
 
 static RadioEvents_t radioEvents;
@@ -58,11 +75,100 @@ static CommandRegistry cmdRegistry;
 
 static float c_to_f(float c) { return c * 9.0f / 5.0f + 32.0f; }
 
+/* ─── LED Control Functions ──────────────────────────────────────────────── */
+
+static void ledSetRGB(bool red, bool green, bool blue)
+{
+    digitalWrite(RGB_RED, red ? HIGH : LOW);
+    digitalWrite(RGB_GREEN, green ? HIGH : LOW);
+    digitalWrite(RGB_BLUE, blue ? HIGH : LOW);
+}
+
+static void ledSetColor(LEDColor color)
+{
+    switch (color) {
+        case LED_OFF:
+            ledSetRGB(false, false, false);
+            break;
+        case LED_RED:
+            ledSetRGB(true, false, false);
+            break;
+        case LED_GREEN:
+            ledSetRGB(false, true, false);
+            break;
+        case LED_BLUE:
+            ledSetRGB(false, false, true);
+            break;
+        case LED_YELLOW:
+            ledSetRGB(true, true, false);
+            break;
+        case LED_CYAN:
+            ledSetRGB(false, true, true);
+            break;
+        case LED_MAGENTA:
+            ledSetRGB(true, false, true);
+            break;
+        case LED_WHITE:
+            ledSetRGB(true, true, true);
+            break;
+    }
+}
+
+static void ledInit(void)
+{
+    pinMode(RGB_RED, OUTPUT);
+    pinMode(RGB_GREEN, OUTPUT);
+    pinMode(RGB_BLUE, OUTPUT);
+    ledSetRGB(false, false, false);
+}
+
 /* ─── Command Handlers ───────────────────────────────────────────────────── */
 
 static void handlePing(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     Serial.println("PING received");
+}
+
+static LEDColor parseColor(const char *colorStr)
+{
+    if (strcasecmp(colorStr, "red") == 0 || strcasecmp(colorStr, "r") == 0)      return LED_RED;
+    if (strcasecmp(colorStr, "green") == 0 || strcasecmp(colorStr, "g") == 0)    return LED_GREEN;
+    if (strcasecmp(colorStr, "blue") == 0 || strcasecmp(colorStr, "b") == 0)     return LED_BLUE;
+    if (strcasecmp(colorStr, "yellow") == 0 || strcasecmp(colorStr, "y") == 0)   return LED_YELLOW;
+    if (strcasecmp(colorStr, "cyan") == 0 || strcasecmp(colorStr, "c") == 0)     return LED_CYAN;
+    if (strcasecmp(colorStr, "magenta") == 0 || strcasecmp(colorStr, "m") == 0)  return LED_MAGENTA;
+    if (strcasecmp(colorStr, "white") == 0 || strcasecmp(colorStr, "w") == 0)    return LED_WHITE;
+    if (strcasecmp(colorStr, "off") == 0 || strcasecmp(colorStr, "o") == 0)      return LED_OFF;
+    return LED_OFF;  /* default */
+}
+
+static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    /* Require at least the color argument */
+    if (arg_count < 1) {
+        Serial.println("BLINK: missing color argument");
+        return;
+    }
+
+    /* Parse color */
+    LEDColor color = parseColor(args[0]);
+    Serial.printf("BLINK: color=%s", args[0]);
+
+    /* Parse optional seconds argument (default 0.5s) */
+    float seconds = 0.5f;
+    if (arg_count >= 2) {
+        seconds = strtof(args[1], NULL);
+        if (seconds <= 0.0f) {
+            Serial.println(" ERROR: invalid seconds value");
+            return;
+        }
+    }
+    Serial.printf(" seconds=%.2f\n", seconds);
+
+    /* Blink the LED */
+    ledSetColor(color);
+    delay((unsigned long)(seconds * 1000.0f));
+    ledSetColor(LED_OFF);
 }
 
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
@@ -103,6 +209,9 @@ void setup(void)
     Serial.begin(115200);
     boardInitMcu();
 
+    /* LED initialization */
+    ledInit();
+
     /* BME280 — try both common I2C addresses */
     bmeOk = bme.begin(0x76);
     if (!bmeOk) bmeOk = bme.begin(0x77);
@@ -132,6 +241,7 @@ void setup(void)
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, NODE_ID);
     cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY);
+    cmdRegister(&cmdRegistry, "blink", handleBlink, CMD_SCOPE_ANY);
 }
 
 void loop(void)
