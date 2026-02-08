@@ -64,7 +64,7 @@
  */
 #define RF_N2G_FREQUENCY         915000000  /* Hz - sensors + ACKs */
 #define RF_G2N_FREQUENCY         915500000  /* Hz - commands */
-#define TX_OUTPUT_POWER          14         /* dBm */
+#define TX_OUTPUT_POWER          14         /* dBm, valid range: -17 to 22 */
 #define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
 #define LORA_SPREADING_FACTOR    7          /* SF7 */
 #define LORA_CODINGRATE          1          /* 4/5 */
@@ -96,6 +96,9 @@ static bool bmeOk = false;
 
 /* RX duty cycle - adjustable at runtime via "rxduty" command */
 static int rxDutyPercent = RX_DUTY_PERCENT_DEFAULT;
+
+/* TX power - adjustable at runtime via "txpwr" command */
+static int8_t txPower = TX_OUTPUT_POWER;
 
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
@@ -175,6 +178,43 @@ static void handleRxDuty(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_
                   oldDuty, rxDutyPercent, getRxWindowMs());
 }
 
+/* Helper to apply TX config with current txPower */
+static void applyTxConfig(void)
+{
+    Radio.SetTxConfig(MODEM_LORA, txPower, 0, LORA_BANDWIDTH,
+                      LORA_SPREADING_FACTOR, LORA_CODINGRATE,
+                      LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
+                      true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+}
+
+static void handleTxPwr(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    if (arg_count < 1) {
+        DBG("TXPWR: current=%d dBm\n", txPower);
+        return;
+    }
+
+    int newPower = atoi(args[0]);
+    if (newPower < -17 || newPower > 22) {
+        DBG("TXPWR: ERROR value %d out of range (-17 to 22)\n", newPower);
+        return;
+    }
+
+    int8_t oldPower = txPower;
+    txPower = (int8_t)newPower;
+    applyTxConfig();
+    DBG("TXPWR: %d dBm -> %d dBm\n", oldPower, txPower);
+}
+
+static void handleParams(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    /* Write current params to response buffer - gateway receives in ACK payload */
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
+             "{\"txpwr\":%d,\"rxduty\":%d}",
+             txPower, rxDutyPercent);
+    DBG("PARAMS: responding with %s\n", cmdResponseBuf);
+}
+
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
 
 static void onTxDone(void)
@@ -251,10 +291,7 @@ void setup(void)
     Radio.SetChannel(RF_N2G_FREQUENCY);  /* Start on N2G for sensor TX */
 
     /* TX config */
-    Radio.SetTxConfig(MODEM_LORA, TX_OUTPUT_POWER, 0, LORA_BANDWIDTH,
-                      LORA_SPREADING_FACTOR, LORA_CODINGRATE,
-                      LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
-                      true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
+    applyTxConfig();
 
     /* RX config - CRC enabled to match gateway */
     Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
@@ -264,9 +301,11 @@ void setup(void)
 
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, NODE_ID);
-    cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY);
-    cmdRegister(&cmdRegistry, "blink", handleBlink, CMD_SCOPE_ANY);
-    cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY);
+    cmdRegister(&cmdRegistry, "ping",   handlePing,   CMD_SCOPE_ANY, true);
+    cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);   /* slow! */
+    cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY, true);
+    cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);
+    cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
 
     DBG("Initialization complete for Node: %s\n", NODE_ID);
 
@@ -430,30 +469,31 @@ void loop(void)
                                       commandId,
                                       isDuplicate ? ", DUP" : "");
 
-                        /* Build and send ACK on N2G channel */
-                        char ackBuf[128];
-                        int ackLen = buildAckPacket(ackBuf, sizeof(ackBuf),
-                                                    cmd.timestamp, cmd.crc, NODE_ID);
-                        if (ackLen > 0) {
-                            /* Switch to N2G for ACK transmission */
-                            Radio.Sleep();
-                            Radio.SetChannel(RF_N2G_FREQUENCY);
+                        /* Look up handler to check earlyAck flag */
+                        CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
+                        bool useEarlyAck = (handler == NULL || handler->earlyAck);
 
-                            txDone = false;
-                            Radio.Send((uint8_t *)ackBuf, ackLen);
-                            DBG("ACK sent on N2G [%d bytes]\n", ackLen);
+                        /* For earlyAck handlers, send ACK before dispatch */
+                        if (useEarlyAck) {
+                            char ackBuf[128];
+                            int ackLen = buildAckPacket(ackBuf, sizeof(ackBuf),
+                                                        cmd.timestamp, cmd.crc, NODE_ID);
+                            if (ackLen > 0) {
+                                Radio.Sleep();
+                                Radio.SetChannel(RF_N2G_FREQUENCY);
+                                txDone = false;
+                                Radio.Send((uint8_t *)ackBuf, ackLen);
+                                DBG("ACK sent on N2G [%d bytes]\n", ackLen);
 
-                            /* Wait for ACK TX completion */
-                            unsigned long ackStart = millis();
-                            while (!txDone && (millis() - ackStart) < 1000) {
-                                Radio.IrqProcess();
-                                delay(1);
+                                unsigned long ackStart = millis();
+                                while (!txDone && (millis() - ackStart) < 1000) {
+                                    Radio.IrqProcess();
+                                    delay(1);
+                                }
+                                Radio.Sleep();
+                                Radio.SetChannel(RF_G2N_FREQUENCY);
+                                Radio.Rx(0);
                             }
-
-                            /* Switch back to G2N and resume RX */
-                            Radio.Sleep();
-                            Radio.SetChannel(RF_G2N_FREQUENCY);
-                            Radio.Rx(0);
                         }
 
                         /* Dispatch to registered handlers (skip duplicates) */
@@ -464,7 +504,39 @@ void loop(void)
                             strncpy(lastCommandId, commandId,
                                     sizeof(lastCommandId) - 1);
                             lastCommandId[sizeof(lastCommandId) - 1] = '\0';
-                            cmdDispatch(&cmdRegistry, &cmd);
+
+                            /* Clear response buffer before dispatch */
+                            cmdResponseBuf[0] = '\0';
+
+                            if (handler != NULL) {
+                                handler->callback(cmd.cmd,
+                                                  (char (*)[CMD_MAX_ARG_LEN])cmd.args,
+                                                  cmd.arg_count);
+                            }
+
+                            /* For late-ACK handlers, send ACK with response after dispatch */
+                            if (!useEarlyAck) {
+                                char ackBuf[LORA_MAX_PAYLOAD];
+                                int ackLen = buildAckPacketWithPayload(ackBuf, sizeof(ackBuf),
+                                                                       cmd.timestamp, cmd.crc,
+                                                                       NODE_ID, cmdResponseBuf);
+                                if (ackLen > 0) {
+                                    Radio.Sleep();
+                                    Radio.SetChannel(RF_N2G_FREQUENCY);
+                                    txDone = false;
+                                    Radio.Send((uint8_t *)ackBuf, ackLen);
+                                    DBG("ACK+payload sent on N2G [%d bytes]\n", ackLen);
+
+                                    unsigned long ackStart = millis();
+                                    while (!txDone && (millis() - ackStart) < 1000) {
+                                        Radio.IrqProcess();
+                                        delay(1);
+                                    }
+                                    Radio.Sleep();
+                                    Radio.SetChannel(RF_G2N_FREQUENCY);
+                                    Radio.Rx(0);
+                                }
+                            }
                         }
                         commandReceived = true;  /* Exit loop after handling command */
                     } else {

@@ -417,6 +417,52 @@ static inline int buildAckPacket(char *buf, size_t bufCap,
     return pLen + 4;
 }
 
+/*
+ * Build an ACK packet with optional payload for command responses.
+ *
+ * ACK format with payload (keys sorted for CRC):
+ *   {"c":"...","id":"...","n":"...","p":{...},"t":"ack"}
+ *
+ * CRC is computed over JSON with "c" field removed, keys sorted:
+ *   {"id":"...","n":"...","p":{...},"t":"ack"}
+ *
+ * payload: JSON object string (without outer braces added), or NULL/empty for no payload
+ *
+ * Returns length written to buf, or 0 on error.
+ */
+static inline int buildAckPacketWithPayload(char *buf, size_t bufCap,
+                                            uint32_t cmdTimestamp, const char *cmdCrc,
+                                            const char *nodeId, const char *payload)
+{
+    /* If no payload, use the simpler function */
+    if (payload == NULL || payload[0] == '\0') {
+        return buildAckPacket(buf, bufCap, cmdTimestamp, cmdCrc, nodeId);
+    }
+
+    /* Build command ID: timestamp_crcprefix */
+    char commandId[32];
+    snprintf(commandId, sizeof(commandId), "%u_%.4s", cmdTimestamp, cmdCrc);
+
+    /* Build CRC payload (sorted keys, no "c"): id < n < p < t */
+    char crcBuf[LORA_MAX_PAYLOAD];
+    int cLen = snprintf(crcBuf, sizeof(crcBuf),
+                        "{\"id\":\"%s\",\"n\":\"%s\",\"p\":%s,\"t\":\"ack\"}",
+                        commandId, nodeId, payload);
+
+    if (cLen <= 0 || cLen >= (int)sizeof(crcBuf)) return 0;
+
+    uint32_t crc = crc32_compute(crcBuf, cLen);
+
+    /* Build final packet with padding for ASR650x TX-FIFO workaround */
+    buf[0] = buf[1] = buf[2] = buf[3] = ' ';
+    int pLen = snprintf(buf + 4, bufCap - 4,
+                        "{\"c\":\"%08x\",\"id\":\"%s\",\"n\":\"%s\",\"p\":%s,\"t\":\"ack\"}",
+                        crc, commandId, nodeId, payload);
+
+    if (pLen <= 0 || pLen >= (int)(bufCap - 4)) return 0;
+    return pLen + 4;
+}
+
 /* ─── Command Callback Registry ──────────────────────────────────────────── */
 
 typedef enum {
@@ -434,6 +480,7 @@ typedef struct {
     const char      *cmd;       /* Command name to match */
     CommandCallback  callback;
     CommandScope     scope;
+    bool             earlyAck;  /* true = ACK before handler, false = after (for responses) */
 } CommandHandler;
 
 typedef struct {
@@ -450,18 +497,89 @@ static inline void cmdRegistryInit(CommandRegistry *reg, const char *nodeId)
 
 /*
  * Register a command handler.
+ * earlyAck: true = send ACK before handler runs (default for most commands)
+ *           false = send ACK after handler runs (for commands that return data)
  * Returns true if registered, false if registry full.
  */
 static inline bool cmdRegister(CommandRegistry *reg, const char *cmd,
-                               CommandCallback callback, CommandScope scope)
+                               CommandCallback callback, CommandScope scope,
+                               bool earlyAck)
 {
     if (reg->count >= CMD_REGISTRY_MAX) return false;
 
     reg->handlers[reg->count].cmd = cmd;
     reg->handlers[reg->count].callback = callback;
     reg->handlers[reg->count].scope = scope;
+    reg->handlers[reg->count].earlyAck = earlyAck;
     reg->count++;
     return true;
+}
+
+/*
+ * Shared response buffer for command handlers.
+ * Handlers that need to return data (earlyAck=false) write JSON here.
+ * Cleared before each dispatch; included in ACK payload if non-empty.
+ */
+/*
+ * Maximum payload size for ACK response packets.
+ *
+ * ACK with payload format:
+ *   {"c":"XXXXXXXX","id":"ts_crc4","n":"nodeId","p":PAYLOAD,"t":"ack"}
+ *
+ * Overhead breakdown:
+ *   4  - TX-FIFO padding (ASR650x workaround)
+ *   6  - {"c":"
+ *   8  - CRC hex value
+ *   8  - ","id":"
+ *  15  - commandId max (10-digit timestamp + _ + 4-char CRC prefix)
+ *   6  - ","n":"
+ *  16  - NODE_ID_MAX_LEN
+ *   5  - ","p":
+ *  11  - ,"t":"ack"}
+ * ----
+ *  79  total overhead
+ */
+#define ACK_PAYLOAD_OVERHEAD (4 + 6 + 8 + 8 + 15 + 6 + NODE_ID_MAX_LEN + 5 + 11)
+#define CMD_RESPONSE_BUF_SIZE (LORA_MAX_PAYLOAD - ACK_PAYLOAD_OVERHEAD)
+
+static char cmdResponseBuf[CMD_RESPONSE_BUF_SIZE];
+
+/*
+ * Look up a command handler by name and scope.
+ * Returns pointer to handler if found, NULL otherwise.
+ */
+static inline CommandHandler* cmdLookup(CommandRegistry *reg, const CommandPacket *pkt)
+{
+    bool is_broadcast = (pkt->node_id[0] == '\0');
+    bool is_for_me = (strcmp(pkt->node_id, reg->node_id) == 0);
+
+    /* If not broadcast and not for us, no match */
+    if (!is_broadcast && !is_for_me) return NULL;
+
+    for (int i = 0; i < reg->count; i++) {
+        CommandHandler *h = &reg->handlers[i];
+
+        /* Check command name matches */
+        if (strcmp(h->cmd, pkt->cmd) != 0) continue;
+
+        /* Check scope */
+        bool scope_ok = false;
+        switch (h->scope) {
+            case CMD_SCOPE_ANY:
+                scope_ok = true;
+                break;
+            case CMD_SCOPE_BROADCAST:
+                scope_ok = is_broadcast;
+                break;
+            case CMD_SCOPE_PRIVATE:
+                scope_ok = is_for_me;
+                break;
+        }
+
+        if (scope_ok) return h;
+    }
+
+    return NULL;
 }
 
 /*

@@ -37,7 +37,7 @@
 /* Dual-channel LoRa — same as datalog sketch */
 #define RF_N2G_FREQUENCY         915000000  /* Hz - sensors + ACKs */
 #define RF_G2N_FREQUENCY         915500000  /* Hz - commands */
-#define TX_OUTPUT_POWER          14         /* dBm */
+#define TX_OUTPUT_POWER          14         /* dBm, valid range: -17 to 22 */
 #define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
 #define LORA_SPREADING_FACTOR    7          /* SF7 */
 #define LORA_CODINGRATE          1          /* 4/5 */
@@ -229,7 +229,7 @@ void setup(void)
 
     /* Command registry — only ping for range test */
     cmdRegistryInit(&cmdRegistry, NODE_ID);
-    cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY);
+    cmdRegister(&cmdRegistry, "ping", handlePing, CMD_SCOPE_ANY, true);
 
     DBG("Range test initialized — node %s\n", NODE_ID);
     delay(2000);   /* show splash */
