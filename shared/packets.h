@@ -107,12 +107,12 @@ typedef struct {
 
 /*
  * Format a double for JSON, matching Python's json.dumps round-trip output.
- * Uses 6 significant digits (~0.1m GPS accuracy) to fit in LoRa packets (250 byte limit).
+ * Uses 8 significant digits (~1mm GPS accuracy) to fit in LoRa packets (250 byte limit).
  * Strips trailing zeros after decimal point.
  */
 static inline int fmtVal(char *buf, size_t cap, double val)
 {
-    int len = snprintf(buf, cap, "%.6g", val);
+    int len = snprintf(buf, cap, "%.8g", val);
 
     char *dot = strchr(buf, '.');
     if (dot) {

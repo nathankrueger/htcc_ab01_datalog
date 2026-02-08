@@ -2,6 +2,7 @@
 #include "LoRaWan_APP.h"
 #include "hw.h"
 #include "packets.h"
+#include "radio.h"
 #include "led.h"
 #include "HT_SSD1306Wire.h"
 #include <TinyGPS++.h>
@@ -34,18 +35,8 @@
 #define LED_BRIGHTNESS           128
 #endif
 
-/* Dual-channel LoRa — same as datalog sketch */
-#define RF_N2G_FREQUENCY         915000000  /* Hz - sensors + ACKs */
-#define RF_G2N_FREQUENCY         915500000  /* Hz - commands */
-#define TX_OUTPUT_POWER          14         /* dBm, valid range: -17 to 22 */
-#define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
-#define LORA_SPREADING_FACTOR    7          /* SF7 */
-#define LORA_CODINGRATE          1          /* 4/5 */
-#define LORA_PREAMBLE_LENGTH     8
-#define LORA_SYMBOL_TIMEOUT      0
-#define LORA_FIX_LENGTH_PAYLOAD_ON  false
-#define LORA_IQ_INVERSION_ON     false
-#define LORA_MAX_PAYLOAD         250
+/* Use max TX power for range testing */
+#define TX_OUTPUT_POWER          MAX_TX_POWER
 
 /*
  * Sensor class ID for GPS readings.
@@ -89,6 +80,11 @@ static double   cachedAlt  = 0.0;
 static uint32_t cachedSats = 0;
 static unsigned long lastValidGpsTime = 0;
 
+/* GPS UART activity tracking */
+static unsigned long lastGpsChars = 0;
+static unsigned long lastGpsCharTime = 0;
+#define GPS_UART_TIMEOUT_MS 2000  /* no uart if no chars for 2s */
+
 /* Display modes */
 enum DisplayMode { DISP_FULL, DISP_BIG_RSSI, DISP_OFF };
 static DisplayMode displayMode = DISP_FULL;
@@ -123,11 +119,13 @@ static void updateDisplayFull(void)
     snprintf(buf, sizeof(buf), "Pkts: %d  Sats: %lu", packetCount, cachedSats);
     oled.drawString(0, 13, buf);
 
-    /* Line 3: GPS status */
-    if (gps.location.isValid()) {
-        snprintf(buf, sizeof(buf), "GPS: fix");
-    } else if (gps.charsProcessed() < 10) {
+    /* Line 3: GPS status - check if UART is active */
+    bool uartActive = (lastGpsCharTime > 0) &&
+                      ((millis() - lastGpsCharTime) < GPS_UART_TIMEOUT_MS);
+    if (!uartActive) {
         snprintf(buf, sizeof(buf), "GPS: no uart");
+    } else if (gps.location.isValid()) {
+        snprintf(buf, sizeof(buf), "GPS: fix");
     } else {
         snprintf(buf, sizeof(buf), "GPS: acquiring");
     }
@@ -327,6 +325,13 @@ void loop(void)
     while (Serial.available() > 0)
         gps.encode(Serial.read());
 
+    /* Track GPS UART activity */
+    unsigned long currentChars = gps.charsProcessed();
+    if (currentChars > lastGpsChars) {
+        lastGpsChars = currentChars;
+        lastGpsCharTime = millis();
+    }
+
     /* ── Listen on G2N for commands ── */
     Radio.Sleep();
     Radio.SetChannel(RF_G2N_FREQUENCY);
@@ -342,6 +347,13 @@ void loop(void)
         /* Keep feeding GPS while listening */
         while (Serial.available() > 0)
             gps.encode(Serial.read());
+
+        /* Track GPS UART activity */
+        unsigned long currentChars = gps.charsProcessed();
+        if (currentChars > lastGpsChars) {
+            lastGpsChars = currentChars;
+            lastGpsCharTime = millis();
+        }
 
         /* Cache valid GPS readings (last known good position) */
         if (gps.location.isValid()) {

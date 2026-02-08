@@ -3,6 +3,7 @@
 #include "hw.h"
 #include <Adafruit_BME280.h>
 #include "packets.h"
+#include "radio.h"
 #include "led.h"
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
@@ -54,27 +55,8 @@
 #define LED_BRIGHTNESS           128          /* 0-255, default brightness */
 #endif
 
-/*
- * Dual-Channel Architecture for Command Reliability
- *
- * N2G (Node to Gateway): Sensor data broadcasts + Command ACKs
- * G2N (Gateway to Node): Command packets only
- *
- * Node listens on G2N during RX window - no sensor interference!
- */
-#define RF_N2G_FREQUENCY         915000000  /* Hz - sensors + ACKs */
-#define RF_G2N_FREQUENCY         915500000  /* Hz - commands */
-#define TX_OUTPUT_POWER          14         /* dBm, valid range: -17 to 22 */
-#define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
-#define LORA_SPREADING_FACTOR    7          /* SF7 */
-#define LORA_CODINGRATE          1          /* 4/5 */
-#define LORA_PREAMBLE_LENGTH     8
-#define LORA_SYMBOL_TIMEOUT      0
-#define LORA_FIX_LENGTH_PAYLOAD_ON  false
-#define LORA_IQ_INVERSION_ON     false
-
-/* Must match LORA_MAX_PAYLOAD in utils/protocol.py */
-#define LORA_MAX_PAYLOAD         250
+/* TX power for normal sensor operation (see radio.h for limits) */
+#define TX_OUTPUT_POWER          DEFAULT_TX_POWER
 
 /*
  * Sensor-class IDs are assigned by alphabetical sort of the Python class names
