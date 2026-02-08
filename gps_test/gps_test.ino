@@ -9,7 +9,7 @@
  *   GPS VCC -> 3V3
  *   GPS GND -> GND
  *
- * LED: green = fix, yellow = receiving but no fix, red = no data
+ * LED: green = fix, yellow = receiving but no fix, off = no data
  *
  * Build:  make SKETCH=gps_test
  * Flash:  make upload SKETCH=gps_test
@@ -87,7 +87,7 @@ void loop()
     else if (receiving)
         ledColor(LED_BRIGHTNESS, LED_BRIGHTNESS, 0);
     else
-        ledColor(LED_BRIGHTNESS, 0, 0);
+        ledOff();
 
     char line[5][32];
 

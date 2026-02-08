@@ -12,15 +12,13 @@
 #define DEBUG 1
 #endif
 
-#if DEBUG
-  #define DBG(fmt, ...)  Serial.printf(fmt, ##__VA_ARGS__)
-  #define DBGLN(msg)     Serial.println(msg)
-  #define DBGP(msg)      Serial.print(msg)
-#else
-  #define DBG(fmt, ...)  ((void)0)
-  #define DBGLN(msg)     ((void)0)
-  #define DBGP(msg)      ((void)0)
-#endif
+/*
+ * Serial is used for GPS on the AB01 (only one hardware UART).
+ * Debug macros are no-ops — use the OLED for status.
+ */
+#define DBG(fmt, ...)  ((void)0)
+#define DBGLN(msg)     ((void)0)
+#define DBGP(msg)      ((void)0)
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
@@ -243,8 +241,7 @@ void setup(void)
     /* LED initialization (same as datalog sketch) */
     ledInit();
 
-    Serial.begin(115200);
-    Serial1.begin(GPS_BAUD);       /* NEO-6M GPS on UART1 */
+    Serial.begin(GPS_BAUD);        /* NEO-6M GPS on hardware UART (no Serial1 on AB01) */
 
     /* OLED splash screen */
     oled.init();
@@ -289,14 +286,9 @@ void loop(void)
 {
     ledSetColor(LED_OFF);   /* ensure LED is off at start of every cycle */
 
-    /* ── Feed GPS (+ raw sanity check) ── */
-    while (Serial1.available() > 0) {
-        char c = Serial1.read();
-        gps.encode(c);
-#if DEBUG
-        Serial.write(c);   /* echo raw NMEA to USB serial for debugging */
-#endif
-    }
+    /* ── Feed GPS ── */
+    while (Serial.available() > 0)
+        gps.encode(Serial.read());
 
     /* ── Listen on G2N for commands ── */
     Radio.Sleep();
@@ -311,8 +303,8 @@ void loop(void)
         Radio.IrqProcess();
 
         /* Keep feeding GPS while listening */
-        while (Serial1.available() > 0)
-            gps.encode(Serial1.read());
+        while (Serial.available() > 0)
+            gps.encode(Serial.read());
 
         if (!rxDone) {
             delay(1);

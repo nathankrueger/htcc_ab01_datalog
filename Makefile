@@ -55,7 +55,7 @@ LORAWAN_REGION ?= 9
 # Parameters for this instance — passed as compiler defines.
 NODE_ID ?= ab01
 SEND_INTERVAL_MS ?= 5000
-LED_BRIGHTNESS ?= 64
+LED_BRIGHTNESS ?= 16
 DEBUG ?= 1
 LED_ORDER ?= GRB
 
