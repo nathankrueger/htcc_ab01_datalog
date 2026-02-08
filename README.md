@@ -1,4 +1,4 @@
-# htcc_ab01_datalog
+# data_log
 
 Arduino sketch for the Heltec CubeCell HTCC-AB01. Reads a BME280 sensor
 (temperature, pressure, humidity) and broadcasts compact JSON packets over
@@ -39,7 +39,7 @@ make monitor
 
 ## Configuration
 
-Edit the `#define` block at the top of `htcc_ab01_datalog.ino`:
+Edit the `#define` block at the top of `data_log.ino`:
 
 | Define             | Default | Description                          |
 |--------------------|---------|--------------------------------------|

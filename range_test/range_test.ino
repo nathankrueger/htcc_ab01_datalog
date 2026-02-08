@@ -2,7 +2,7 @@
 #include "LoRaWan_APP.h"
 #include "hw.h"
 #include "packets.h"
-#include "CubeCell_NeoPixel.h"
+#include "led.h"
 #include "HT_SSD1306Wire.h"
 #include <TinyGPS++.h>
 
@@ -57,20 +57,6 @@
 
 /* ─── Hardware Objects ──────────────────────────────────────────────────── */
 
-/*
- * LED_ORDER selects the NeoPixel color byte ordering.  Most HTCC-AB01 V2
- * boards ship with WS2812B (GRB), but some revisions use an RGB-ordered
- * variant.  Override at build time:  make LED_ORDER=RGB
- */
-#ifndef LED_ORDER
-#define LED_ORDER "GRB"
-#endif
-
-#define _STR_EQ(a, b) (a[0]==b[0] && a[1]==b[1] && a[2]==b[2])
-#define LED_PIXEL_TYPE (_STR_EQ(LED_ORDER, "RGB") ? NEO_RGB : NEO_GRB)
-
-static CubeCell_NeoPixel rgbLed(1, RGB, LED_PIXEL_TYPE + NEO_KHZ800);
-
 /* SSD1306 OLED 128x64, I2C addr 0x3C, no reset pin */
 static SSD1306Wire oled(0x3c, 500000, SDA, SCL, GEOMETRY_128_64, -1);
 
@@ -95,39 +81,6 @@ static CommandRegistry cmdRegistry;
 static int           packetCount = 0;
 static int16_t       lastDisplayRssi = 0;
 static unsigned long lastRxTime = 0;
-
-/* ─── LED Control (same pattern as datalog sketch) ─────────────────────── */
-
-typedef enum {
-    LED_OFF = 0,
-    LED_RED,
-} LEDColor;
-
-static void ledSetColor(LEDColor color)
-{
-    uint32_t c;
-    uint8_t brightness = LED_BRIGHTNESS;
-    switch (color) {
-        case LED_RED:
-            c = rgbLed.Color(brightness, 0, 0);
-            break;
-        case LED_OFF:
-        default:
-            c = rgbLed.Color(0, 0, 0);
-            break;
-    }
-    rgbLed.setPixelColor(0, c);
-    rgbLed.show();
-}
-
-static void ledInit(void)
-{
-    rgbLed.begin();
-    rgbLed.clear();
-    rgbLed.show();
-    pinMode(RGB, OUTPUT);
-    digitalWrite(RGB, LOW);
-}
 
 /* ─── OLED Display ──────────────────────────────────────────────────────── */
 

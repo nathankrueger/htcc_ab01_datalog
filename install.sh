@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — bootstrap arduino-cli and all build dependencies for htcc_ab01_datalog
+# install.sh — bootstrap arduino-cli and all build dependencies for data_log
 #
 # Usage:
 #   ./install.sh            install / update everything (idempotent)
@@ -133,10 +133,10 @@ log "Running test compile …"
 cd "$SCRIPT_DIR"
 arduino-cli compile \
     --fqbn "CubeCell:CubeCell:CubeCell-Board-V2:LORAWAN_REGION=9" \
-    --build-path build/htcc_ab01_datalog \
+    --build-path build/data_log \
     --build-property "compiler.c.extra_flags=-I$SCRIPT_DIR/shared" \
     --build-property "compiler.cpp.extra_flags=-I$SCRIPT_DIR/shared" \
-    htcc_ab01_datalog/htcc_ab01_datalog.ino
+    data_log/data_log.ino
 
 log ""
 log "Setup complete. Run 'make' to compile, 'make upload' to flash."

@@ -3,7 +3,7 @@
 #include "hw.h"
 #include <Adafruit_BME280.h>
 #include "packets.h"
-#include "CubeCell_NeoPixel.h"
+#include "led.h"
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
@@ -88,33 +88,6 @@
 /* CRC-32, Reading, buildSensorPacket, CommandPacket, parseCommand,
  * buildAckPacket are all in packets.h */
 
-/* ─── LED Control (NeoPixel) ─────────────────────────────────────────────── */
-
-/*
- * LED_ORDER selects the NeoPixel color byte ordering.  Most HTCC-AB01 V2
- * boards ship with WS2812B (GRB), but some revisions use an RGB-ordered
- * variant.  Override at build time:  make LED_ORDER=RGB
- */
-#ifndef LED_ORDER
-#define LED_ORDER "GRB"
-#endif
-
-#define _STR_EQ(a, b) (a[0]==b[0] && a[1]==b[1] && a[2]==b[2])
-#define LED_PIXEL_TYPE (_STR_EQ(LED_ORDER, "RGB") ? NEO_RGB : NEO_GRB)
-
-CubeCell_NeoPixel rgbLed(1, RGB, LED_PIXEL_TYPE + NEO_KHZ800);
-
-typedef enum {
-    LED_OFF = 0,
-    LED_RED,
-    LED_GREEN,
-    LED_BLUE,
-    LED_YELLOW,      // Red + Green
-    LED_CYAN,        // Green + Blue
-    LED_MAGENTA,     // Red + Blue
-    LED_WHITE        // All on
-} LEDColor;
-
 /* ─── Globals ────────────────────────────────────────────────────────────── */
 
 static RadioEvents_t radioEvents;
@@ -146,136 +119,11 @@ static CommandRegistry cmdRegistry;
 
 static float c_to_f(float c) { return c * 9.0f / 5.0f + 32.0f; }
 
-/* ─── LED Control Functions ──────────────────────────────────────────────── */
-
-static void ledSetColor(LEDColor color)
-{
-    uint32_t c;
-    uint8_t brightness = LED_BRIGHTNESS;
-    switch (color) {
-        case LED_OFF:
-            c = rgbLed.Color(0, 0, 0);
-            break;
-        case LED_RED:
-            c = rgbLed.Color(brightness, 0, 0);
-            break;
-        case LED_GREEN:
-            c = rgbLed.Color(0, brightness, 0);
-            break;
-        case LED_BLUE:
-            c = rgbLed.Color(0, 0, brightness);
-            break;
-        case LED_YELLOW:
-            c = rgbLed.Color(brightness, brightness, 0);
-            break;
-        case LED_CYAN:
-            c = rgbLed.Color(0, brightness, brightness);
-            break;
-        case LED_MAGENTA:
-            c = rgbLed.Color(brightness, 0, brightness);
-            break;
-        case LED_WHITE:
-            c = rgbLed.Color(brightness, brightness, brightness);
-            break;
-        default:
-            c = rgbLed.Color(0, 0, 0);
-            break;
-    }
-    rgbLed.setPixelColor(0, c);
-    rgbLed.show();
-}
-
-static void ledInit(void)
-{
-    rgbLed.begin();
-    rgbLed.clear();
-    rgbLed.show();
-    pinMode(RGB, OUTPUT);
-    digitalWrite(RGB, LOW);
-}
-
-static void ledTest(void)
-{
-    static const int delayAmt = 5000;
-    const char* colorNames[] = {
-        "RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA", "WHITE"
-    };
-    LEDColor colors[] = {
-        LED_RED, LED_GREEN, LED_BLUE, LED_YELLOW, LED_CYAN, LED_MAGENTA, LED_WHITE
-    };
-    const int numColors = 7;
-
-    DBGLN("LED Test: Cycling through all colors...");
-
-    for (int i = 0; i < numColors; i++) {
-        DBG("  %s\n", colorNames[i]);
-        ledSetColor(colors[i]);
-        delay(delayAmt);
-    }
-
-    ledSetColor(LED_OFF);
-    DBGLN("LED Test: Complete\n");
-
-    /*
-     * Raw byte diagnostic — bypasses Color() reordering.
-     * Watch the LED and note which PHYSICAL color appears for each step.
-     * This tells us the actual byte→channel mapping of the LED hardware.
-     */
-    DBGLN("LED Raw Byte Diagnostic:");
-
-    /* Byte 0 only */
-    DBGLN("  Byte0=255 (GRB→Green, RGB→Red)");
-    rgbLed.setPixelColor(0, (uint32_t)0xFF0000);  /* byte0=0xFF, byte1=0, byte2=0 */
-    rgbLed.show();
-    delay(delayAmt);
-
-    /* Byte 1 only */
-    DBGLN("  Byte1=255 (GRB→Red, RGB→Green)");
-    rgbLed.setPixelColor(0, (uint32_t)0x00FF00);  /* byte0=0, byte1=0xFF, byte2=0 */
-    rgbLed.show();
-    delay(delayAmt);
-
-    /* Byte 2 only */
-    DBGLN("  Byte2=255 (always Blue for GRB/RGB)");
-    rgbLed.setPixelColor(0, (uint32_t)0x0000FF);  /* byte0=0, byte1=0, byte2=0xFF */
-    rgbLed.show();
-    delay(delayAmt);
-
-    /* All off — if LED stays lit here, output is inverted (common anode) */
-    DBGLN("  ALL OFF (0,0,0) — should be dark. If lit → inverted/common-anode LED");
-    rgbLed.setPixelColor(0, (uint32_t)0x000000);
-    rgbLed.show();
-    delay(delayAmt);
-
-    /* All max — if LED is dark here, output is inverted */
-    DBGLN("  ALL MAX (255,255,255) — should be white. If dark → inverted LED");
-    rgbLed.setPixelColor(0, (uint32_t)0xFFFFFF);
-    rgbLed.show();
-    delay(delayAmt);
-
-    rgbLed.setPixelColor(0, (uint32_t)0x000000);
-    rgbLed.show();
-    DBGLN("LED Raw Diagnostic: Complete");
-}
-
 /* ─── Command Handlers ───────────────────────────────────────────────────── */
 
 static void handlePing(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     DBGLN("PING received");
-}
-
-static LEDColor parseColor(const char *colorStr)
-{
-    if (strcasecmp(colorStr, "red") == 0 || strcasecmp(colorStr, "r") == 0)      return LED_RED;
-    if (strcasecmp(colorStr, "green") == 0 || strcasecmp(colorStr, "g") == 0)    return LED_GREEN;
-    if (strcasecmp(colorStr, "blue") == 0 || strcasecmp(colorStr, "b") == 0)     return LED_BLUE;
-    if (strcasecmp(colorStr, "yellow") == 0 || strcasecmp(colorStr, "y") == 0)   return LED_YELLOW;
-    if (strcasecmp(colorStr, "cyan") == 0 || strcasecmp(colorStr, "c") == 0)     return LED_CYAN;
-    if (strcasecmp(colorStr, "magenta") == 0 || strcasecmp(colorStr, "m") == 0)  return LED_MAGENTA;
-    if (strcasecmp(colorStr, "white") == 0 || strcasecmp(colorStr, "w") == 0)    return LED_WHITE;
-    if (strcasecmp(colorStr, "off") == 0 || strcasecmp(colorStr, "o") == 0)      return LED_OFF;
-    return LED_OFF;  /* default */
 }
 
 static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)

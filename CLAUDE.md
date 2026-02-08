@@ -12,7 +12,7 @@ See: https://heltec.org/project/htcc-ab01-v2/
 
 ```sh
 ./install.sh              # One-time bootstrap: arduino-cli + CubeCell core + libraries
-make                      # Compile default sketch (htcc_ab01_datalog)
+make                      # Compile default sketch (data_log)
 make upload               # Compile + upload (auto-attaches USB on WSL)
 make monitor              # Serial monitor at 115200 baud
 make clean                # Remove build artifacts for current sketch
@@ -66,7 +66,7 @@ Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
 
 ## Key Files
 
-- **htcc_ab01_datalog/htcc_ab01_datalog.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers (`ping`, `blink`, `rxduty`), LED control, BME280 reading
+- **data_log/data_log.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers (`ping`, `blink`, `rxduty`), LED control, BME280 reading
 - **range_test/range_test.ino** — Range test sketch: listens for gateway pings on G2N, displays RSSI on SSD1306 OLED, reads GPS from NEO-6M, sends GPS sensor packet on N2G
 - **shared/packets.h** — All protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting. Shared by both sketches via `-I shared/` include path.
 - **Makefile** — Build system with platform detection (macOS/Linux/WSL), `arduino-cli` invocation, compiler defines, USB passthrough, multi-sketch support (`SKETCH` variable)

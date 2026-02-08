@@ -18,33 +18,14 @@
 
 #include "Arduino.h"
 #include "HT_SSD1306Wire.h"
-#include "CubeCell_NeoPixel.h"
+#include "led.h"
 #include <TinyGPS++.h>
 
-#ifndef LED_BRIGHTNESS
-#define LED_BRIGHTNESS 64
-#endif
-
 SSD1306Wire oled(0x3c, 500000, SDA, SCL, GEOMETRY_128_64, -1);
-CubeCell_NeoPixel led(1, RGB, NEO_GRB + NEO_KHZ800);
 TinyGPSPlus gps;
 
 static uint32_t totalChars = 0;
 static uint32_t lastCharTime = 0;
-
-static void ledColor(uint8_t r, uint8_t g, uint8_t b)
-{
-    led.setPixelColor(0, led.Color(r, g, b));
-    led.show();
-}
-
-static void ledOff(void)
-{
-    led.setPixelColor(0, 0);
-    led.show();
-    pinMode(GPIO4, OUTPUT);
-    digitalWrite(GPIO4, LOW);
-}
 
 void setup()
 {
@@ -52,8 +33,7 @@ void setup()
     digitalWrite(Vext, LOW);
     delay(100);
 
-    led.begin();
-    ledOff();
+    ledInit();
 
     oled.init();
     oled.setFont(ArialMT_Plain_10);
@@ -83,9 +63,9 @@ void loop()
     bool hasFix = gps.location.isValid();
 
     if (hasFix)
-        ledColor(0, LED_BRIGHTNESS, 0);
+        ledSetRGB(0, LED_BRIGHTNESS, 0);
     else if (receiving)
-        ledColor(LED_BRIGHTNESS, LED_BRIGHTNESS, 0);
+        ledSetRGB(LED_BRIGHTNESS, LED_BRIGHTNESS, 0);
     else
         ledOff();
 

@@ -1,7 +1,7 @@
 # Arduino CLI Makefile for CubeCell HTCC-AB01 (CubeCell-Board-V2)
 #
 # Usage:
-#   make                           # compile default sketch (htcc_ab01_datalog)
+#   make                           # compile default sketch (data_log)
 #   make upload                    # compile + upload  (auto-attaches USB on WSL)
 #   make SKETCH=range_test         # compile the range test sketch
 #   make upload SKETCH=range_test  # compile + upload range test
@@ -15,9 +15,16 @@
 #   make upload USBIPD_BUSID=2-3         # use a different USB bus ID (WSL only)
 #   make VERBOSE=1                       # show detailed compilation output
 
-SKETCH    ?= htcc_ab01_datalog
+SKETCH    ?= data_log
 FQBN       = CubeCell:CubeCell:CubeCell-Board-V2
 BUILD_DIR  = build/$(SKETCH)
+
+# Locate sketch: check top-level first, then examples/
+ifneq ($(wildcard $(SKETCH)/$(SKETCH).ino),)
+  SKETCH_PATH = $(SKETCH)
+else
+  SKETCH_PATH = examples/$(SKETCH)
+endif
 
 # ─── Platform detection ──────────────────────────────────────────────────────
 UNAME_S := $(shell uname -s)
@@ -89,7 +96,7 @@ compile:
 		--build-path "$(BUILD_DIR)" \
 		$(VERBOSE_FLAG) \
 		$(DEFINE_FLAGS) \
-		"$(SKETCH)/$(SKETCH).ino"
+		"$(SKETCH_PATH)/$(SKETCH).ino"
 
 upload: compile
 ifeq ($(UNAME_S),Darwin)
@@ -128,7 +135,7 @@ endif
 		--port "$(PORT)" \
 		--build-path "$(BUILD_DIR)" \
 		$(VERBOSE_FLAG) \
-		"$(SKETCH)/$(SKETCH).ino"
+		"$(SKETCH_PATH)/$(SKETCH).ino"
 
 monitor:
 	arduino-cli monitor \
