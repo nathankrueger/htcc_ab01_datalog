@@ -208,10 +208,14 @@ static void handleTxPwr(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
 
 static void handleParams(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
-    /* Write current params to response buffer - gateway receives in ACK payload */
+    /*
+     * Write current params to response buffer - gateway receives in ACK payload.
+     * IMPORTANT: Keys must be in alphabetical order for CRC to match Python's
+     * json.dumps(sort_keys=True). Order: rxduty < txpwr
+     */
     snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
-             "{\"txpwr\":%d,\"rxduty\":%d}",
-             txPower, rxDutyPercent);
+             "{\"rxduty\":%d,\"txpwr\":%d}",
+             rxDutyPercent, txPower);
     DBG("PARAMS: responding with %s\n", cmdResponseBuf);
 }
 
