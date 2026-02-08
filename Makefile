@@ -1,10 +1,13 @@
 # Arduino CLI Makefile for CubeCell HTCC-AB01 (CubeCell-Board-V2)
 #
 # Usage:
-#   make            # compile
-#   make upload     # compile + upload  (auto-attaches USB on WSL)
-#   make monitor    # open serial monitor
-#   make clean      # remove build artifacts
+#   make                           # compile default sketch (htcc_ab01_datalog)
+#   make upload                    # compile + upload  (auto-attaches USB on WSL)
+#   make SKETCH=range_test         # compile the range test sketch
+#   make upload SKETCH=range_test  # compile + upload range test
+#   make monitor                   # open serial monitor
+#   make clean                     # remove build artifacts for current sketch
+#   make clean-all                 # remove all build artifacts
 #
 # Override defaults on the command line, e.g.:
 #   make LORAWAN_REGION=6                # switch to EU868
@@ -12,9 +15,9 @@
 #   make upload USBIPD_BUSID=2-3         # use a different USB bus ID (WSL only)
 #   make VERBOSE=1                       # show detailed compilation output
 
-SKETCH    = htcc_ab01_datalog.ino
-FQBN      = CubeCell:CubeCell:CubeCell-Board-V2
-BUILD_DIR = build
+SKETCH    ?= htcc_ab01_datalog
+FQBN       = CubeCell:CubeCell:CubeCell-Board-V2
+BUILD_DIR  = build/$(SKETCH)
 
 # ─── Platform detection ──────────────────────────────────────────────────────
 UNAME_S := $(shell uname -s)
@@ -54,9 +57,10 @@ NODE_ID ?= ab01
 SEND_INTERVAL_MS ?= 5000
 LED_BRIGHTNESS ?= 64
 DEBUG ?= 1
+LED_ORDER ?= GRB
 
 # String defines (will be quoted)
-STRING_DEFINES = NODE_ID
+STRING_DEFINES = NODE_ID LED_ORDER
 # Numeric defines (no quotes)
 NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG
 
@@ -66,12 +70,16 @@ STRING_DEFS = $(foreach def,$(STRING_DEFINES),-D$(def)=\"$($(def))\")
 NUMERIC_DEFS = $(foreach def,$(NUMERIC_DEFINES),-D$(def)=$($(def)))
 ALL_DEFS = $(STRING_DEFS) $(NUMERIC_DEFS)
 
+# Include path for shared headers (packets.h, etc.)
+INCLUDE_FLAGS = -I$(CURDIR)/shared
+
 # Combine into single build properties (one for C, one for C++)
-DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS)" --build-property "compiler.cpp.extra_flags=$(ALL_DEFS)"
+DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS) $(INCLUDE_FLAGS)" \
+               --build-property "compiler.cpp.extra_flags=$(ALL_DEFS) $(INCLUDE_FLAGS)"
 
-FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION)
+FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION),LORAWAN_RGB=0
 
-.PHONY: all compile upload monitor clean
+.PHONY: all compile upload monitor clean clean-all
 
 all: compile
 
@@ -81,7 +89,7 @@ compile:
 		--build-path "$(BUILD_DIR)" \
 		$(VERBOSE_FLAG) \
 		$(DEFINE_FLAGS) \
-		"$(SKETCH)"
+		"$(SKETCH)/$(SKETCH).ino"
 
 upload: compile
 ifeq ($(UNAME_S),Darwin)
@@ -120,7 +128,7 @@ endif
 		--port "$(PORT)" \
 		--build-path "$(BUILD_DIR)" \
 		$(VERBOSE_FLAG) \
-		"$(SKETCH)"
+		"$(SKETCH)/$(SKETCH).ino"
 
 monitor:
 	arduino-cli monitor \
@@ -129,3 +137,6 @@ monitor:
 
 clean:
 	rm -rf "$(BUILD_DIR)"
+
+clean-all:
+	rm -rf build

@@ -113,6 +113,13 @@ else
     arduino-cli lib install "Adafruit BME280 Library"
 fi
 
+if ! $FORCE && arduino-cli lib list 2>/dev/null | grep -q "TinyGPSPlus"; then
+    log "TinyGPSPlus Library already installed"
+else
+    log "Installing TinyGPSPlus Library …"
+    arduino-cli lib install "TinyGPSPlus"
+fi
+
 # ─── 6. verify ────────────────────────────────────────────────────────────────
 log ""
 log "Installed cores:"
@@ -126,8 +133,10 @@ log "Running test compile …"
 cd "$SCRIPT_DIR"
 arduino-cli compile \
     --fqbn "CubeCell:CubeCell:CubeCell-Board-V2:LORAWAN_REGION=9" \
-    --build-path build \
-    htcc_ab01_datalog.ino
+    --build-path build/htcc_ab01_datalog \
+    --build-property "compiler.c.extra_flags=-I$SCRIPT_DIR/shared" \
+    --build-property "compiler.cpp.extra_flags=-I$SCRIPT_DIR/shared" \
+    htcc_ab01_datalog/htcc_ab01_datalog.ino
 
 log ""
 log "Setup complete. Run 'make' to compile, 'make upload' to flash."

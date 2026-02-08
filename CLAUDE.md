@@ -4,18 +4,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Arduino sketch for the Heltec CubeCell HTCC-AB01 (ASR650x MCU). Reads BME280 sensor data (temperature, pressure, humidity) and broadcasts compact JSON packets over LoRa to a gateway on a Raspberry Pi Zero 2 W. Supports bidirectional communication via a dual-channel LoRa architecture.
+Multi-sketch Arduino project for the Heltec CubeCell HTCC-AB01 (ASR650x MCU). The default sketch reads BME280 sensor data (temperature, pressure, humidity) and broadcasts compact JSON packets over LoRa to a gateway on a Raspberry Pi Zero 2 W. A second sketch (`range_test`) is a field tool for measuring LoRa reception range using an SSD1306 OLED display and NEO-6M GPS module. Both sketches use a dual-channel LoRa architecture with shared protocol code.
 
-See: See: https://heltec.org/project/htcc-ab01-v2/
+See: https://heltec.org/project/htcc-ab01-v2/
 
 ## Build Commands
 
 ```sh
 ./install.sh              # One-time bootstrap: arduino-cli + CubeCell core + libraries
-make                      # Compile
+make                      # Compile default sketch (htcc_ab01_datalog)
 make upload               # Compile + upload (auto-attaches USB on WSL)
 make monitor              # Serial monitor at 115200 baud
-make clean                # Remove build artifacts
+make clean                # Remove build artifacts for current sketch
+make clean-all            # Remove all build artifacts
+```
+
+Select which sketch to build with the `SKETCH` variable:
+```sh
+make SKETCH=range_test           # Compile range test sketch
+make upload SKETCH=range_test    # Upload range test sketch
 ```
 
 Build-time parameters are passed via Makefile variables:
@@ -59,10 +66,11 @@ Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
 
 ## Key Files
 
-- **htcc_ab01_datalog.ino** — Main sketch: setup, loop, LoRa callbacks, command handlers (`ping`, `blink`, `rxduty`), LED control, BME280 reading
-- **packets.h** — All protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting
-- **Makefile** — Build system with platform detection (macOS/Linux/WSL), `arduino-cli` invocation, compiler defines, USB passthrough
-- **install.sh** — Bootstrap script for arduino-cli, CubeCell board core, and libraries
+- **htcc_ab01_datalog/htcc_ab01_datalog.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers (`ping`, `blink`, `rxduty`), LED control, BME280 reading
+- **range_test/range_test.ino** — Range test sketch: listens for gateway pings on G2N, displays RSSI on SSD1306 OLED, reads GPS from NEO-6M, sends GPS sensor packet on N2G
+- **shared/packets.h** — All protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting. Shared by both sketches via `-I shared/` include path.
+- **Makefile** — Build system with platform detection (macOS/Linux/WSL), `arduino-cli` invocation, compiler defines, USB passthrough, multi-sketch support (`SKETCH` variable)
+- **install.sh** — Bootstrap script for arduino-cli, CubeCell board core, and libraries (BME280, TinyGPSPlus)
 
 ## Protocol Details
 
@@ -83,4 +91,28 @@ All configurable via Makefile variables (which become `-D` compiler flags) or `#
 - `SEND_INTERVAL_MS` / `CYCLE_PERIOD_MS` (default 5000) — cycle period
 - `LED_BRIGHTNESS` (0-255, default 64) — NeoPixel brightness
 - `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros
-- `RX_DUTY_PERCENT_DEFAULT` (0-100, default 90) — fraction of cycle spent listening for commands
+- `RX_DUTY_PERCENT_DEFAULT` (0-100, default 90) — fraction of cycle spent listening for commands (datalog only)
+
+## Range Test Tool
+
+Field testing tool for measuring LoRa reception range. The CubeCell node receives gateway pings, shows RSSI on an SSD1306 OLED, and sends GPS coordinates back.
+
+**Node side** (`range_test/range_test.ino`):
+- Listens on G2N (915.5 MHz) for ping commands
+- Displays RSSI in large font on SSD1306 (128x64, I2C 0x3C, SDA/SCL)
+- Blinks red NeoPixel LED for 1s on each received ping
+- Reads GPS from NEO-6M via Serial1 (9600 baud, RX=P3_0, TX=P3_1)
+- Sends ACK + GPS sensor packet on N2G (915.0 MHz)
+- Sensor class ID 2 for GPS readings (Latitude, Longitude, Satellites, RSSI)
+
+**Gateway side** (`../data_log/scripts/range_test.py`):
+- Sends periodic ping commands on G2N
+- Logs responses with RSSI, GPS, timestamps
+- Frequency-hops between G2N (send) and N2G (receive)
+- CSV output for post-processing
+
+```sh
+# On gateway Pi:
+python3 ../data_log/scripts/range_test.py --node ab01 --interval 5
+python3 ../data_log/scripts/range_test.py --csv results.csv --duration 300
+```

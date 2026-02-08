@@ -90,7 +90,19 @@
 
 /* ─── LED Control (NeoPixel) ─────────────────────────────────────────────── */
 
-CubeCell_NeoPixel rgbLed(1, RGB, NEO_GRB + NEO_KHZ800);
+/*
+ * LED_ORDER selects the NeoPixel color byte ordering.  Most HTCC-AB01 V2
+ * boards ship with WS2812B (GRB), but some revisions use an RGB-ordered
+ * variant.  Override at build time:  make LED_ORDER=RGB
+ */
+#ifndef LED_ORDER
+#define LED_ORDER "GRB"
+#endif
+
+#define _STR_EQ(a, b) (a[0]==b[0] && a[1]==b[1] && a[2]==b[2])
+#define LED_PIXEL_TYPE (_STR_EQ(LED_ORDER, "RGB") ? NEO_RGB : NEO_GRB)
+
+CubeCell_NeoPixel rgbLed(1, RGB, LED_PIXEL_TYPE + NEO_KHZ800);
 
 typedef enum {
     LED_OFF = 0,
@@ -178,6 +190,8 @@ static void ledInit(void)
     rgbLed.begin();
     rgbLed.clear();
     rgbLed.show();
+    pinMode(RGB, OUTPUT);
+    digitalWrite(RGB, LOW);
 }
 
 static void ledTest(void)
@@ -319,14 +333,18 @@ static void onRxError(void)
 
 void setup(void)
 {
+    /* Kill RGB data pin before powering peripherals */
+    pinMode(RGB, OUTPUT);
+    digitalWrite(RGB, LOW);
+
     pinMode(Vext, OUTPUT);
     digitalWrite(Vext, LOW);          /* power on peripherals */
+    delay(1);                         /* let Vext rail stabilise */
+
+    /* Immediately clear the NeoPixel before it latches garbage */
+    ledInit();
 
     Serial.begin(115200);
-    boardInitMcu();
-
-    /* LED initialization */
-    ledInit();
 
     /* BME280 — try both common I2C addresses */
     bmeOk = bme.begin(0x76);
