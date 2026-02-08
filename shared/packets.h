@@ -100,18 +100,19 @@ typedef struct {
     const char *name;   /* reading name, e.g. "Temperature" */
     int         sid;    /* sensor class ID from the Python registry */
     const char *units;  /* units as a JSON string value */
-    float       value;
+    double      value;  /* double for full GPS precision */
 } Reading;
 
 /* ─── Sensor Packet Builder ──────────────────────────────────────────────── */
 
 /*
- * Format a float for JSON, matching Python's json.dumps round-trip output.
+ * Format a double for JSON, matching Python's json.dumps round-trip output.
+ * Uses 6 significant digits (~0.1m GPS accuracy) to fit in LoRa packets (250 byte limit).
  * Strips trailing zeros after decimal point.
  */
-static inline int fmtVal(char *buf, size_t cap, float val)
+static inline int fmtVal(char *buf, size_t cap, double val)
 {
-    int len = snprintf(buf, cap, "%g", (double)val);
+    int len = snprintf(buf, cap, "%.6g", val);
 
     char *dot = strchr(buf, '.');
     if (dot) {
@@ -137,7 +138,7 @@ static inline int buildSensorPacket(char *buf, size_t bufCap,
                                     const Reading *readings, int count)
 {
     /* 1. Serialise the readings array (keys already in sorted order) */
-    char rBuf[220];
+    char rBuf[256];
     int  rLen = 0;
     rBuf[rLen++] = '[';
 

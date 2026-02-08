@@ -82,54 +82,135 @@ static int           packetCount = 0;
 static int16_t       lastDisplayRssi = 0;
 static unsigned long lastRxTime = 0;
 
+/* Cached GPS values (last valid fix) */
+static double   cachedLat  = 0.0;
+static double   cachedLon  = 0.0;
+static double   cachedAlt  = 0.0;
+static uint32_t cachedSats = 0;
+static unsigned long lastValidGpsTime = 0;
+
+/* Display modes */
+enum DisplayMode { DISP_FULL, DISP_BIG_RSSI, DISP_OFF };
+static DisplayMode displayMode = DISP_FULL;
+
+/* Button state (USER_KEY = P3_3 = GPIO7) */
+static bool lastButtonState = HIGH;
+static unsigned long lastButtonTime = 0;
+#define BUTTON_DEBOUNCE_MS 50
+
+/* Bar graph RSSI range */
+#define RSSI_MIN -120
+#define RSSI_MAX -40
+
 /* ─── OLED Display ──────────────────────────────────────────────────────── */
+
+static void updateDisplayFull(void)
+{
+    oled.setFont(ArialMT_Plain_10);
+    oled.setTextAlignment(TEXT_ALIGN_LEFT);
+    char buf[32];
+
+    /* Line 1: RSSI + time since last RX */
+    if (packetCount > 0) {
+        unsigned long rxAgo = (millis() - lastRxTime) / 1000;
+        snprintf(buf, sizeof(buf), "%d dBm (%lus)", lastDisplayRssi, rxAgo);
+    } else {
+        snprintf(buf, sizeof(buf), "Waiting...");
+    }
+    oled.drawString(0, 0, buf);
+
+    /* Line 2: Packet count + satellites */
+    snprintf(buf, sizeof(buf), "Pkts: %d  Sats: %lu", packetCount, cachedSats);
+    oled.drawString(0, 13, buf);
+
+    /* Line 3: GPS status */
+    if (gps.location.isValid()) {
+        snprintf(buf, sizeof(buf), "GPS: fix");
+    } else if (gps.charsProcessed() < 10) {
+        snprintf(buf, sizeof(buf), "GPS: no uart");
+    } else {
+        snprintf(buf, sizeof(buf), "GPS: acquiring");
+    }
+    oled.drawString(0, 26, buf);
+
+    /* Line 4: Time since last valid GPS fix */
+    if (lastValidGpsTime > 0) {
+        unsigned long gpsAgo = (millis() - lastValidGpsTime) / 1000;
+        snprintf(buf, sizeof(buf), "Last fix: %lus", gpsAgo);
+    } else {
+        snprintf(buf, sizeof(buf), "Last fix: --");
+    }
+    oled.drawString(0, 39, buf);
+
+    /* Line 5: Lat/lon or placeholder */
+    if (lastValidGpsTime > 0) {
+        snprintf(buf, sizeof(buf), "%.4f, %.4f", cachedLat, cachedLon);
+    } else {
+        snprintf(buf, sizeof(buf), "--, --");
+    }
+    oled.drawString(0, 52, buf);
+}
+
+static void updateDisplayBigRssi(void)
+{
+    char buf[32];
+
+    /* Large RSSI value centered at top */
+    oled.setFont(ArialMT_Plain_24);
+    oled.setTextAlignment(TEXT_ALIGN_CENTER);
+    if (packetCount > 0) {
+        snprintf(buf, sizeof(buf), "%d dBm", lastDisplayRssi);
+    } else {
+        snprintf(buf, sizeof(buf), "---");
+    }
+    oled.drawString(64, 0, buf);
+
+    /* Time since last RX below RSSI */
+    oled.setFont(ArialMT_Plain_10);
+    if (packetCount > 0) {
+        unsigned long rxAgo = (millis() - lastRxTime) / 1000;
+        snprintf(buf, sizeof(buf), "%lus ago", rxAgo);
+    } else {
+        snprintf(buf, sizeof(buf), "Waiting...");
+    }
+    oled.drawString(64, 28, buf);
+
+    /* Bar graph at bottom (y=48 to y=63, 16px tall) */
+    /* RSSI range: -120 dBm (empty) to -40 dBm (full) */
+    int barY = 48;
+    int barHeight = 14;
+    int barMaxWidth = 124;  /* leave 2px margin on each side */
+
+    /* Draw bar outline */
+    oled.drawRect(2, barY, barMaxWidth, barHeight);
+
+    /* Calculate fill width based on RSSI */
+    if (packetCount > 0) {
+        int rssi = lastDisplayRssi;
+        if (rssi < RSSI_MIN) rssi = RSSI_MIN;
+        if (rssi > RSSI_MAX) rssi = RSSI_MAX;
+        int fillWidth = ((rssi - RSSI_MIN) * (barMaxWidth - 4)) / (RSSI_MAX - RSSI_MIN);
+        if (fillWidth > 0) {
+            oled.fillRect(4, barY + 2, fillWidth, barHeight - 4);
+        }
+    }
+}
 
 static void updateDisplay(void)
 {
     oled.clear();
 
-    /* RSSI in large font (top of screen) — primary field data */
-    oled.setFont(ArialMT_Plain_24);
-    oled.setTextAlignment(TEXT_ALIGN_CENTER);
-    if (packetCount > 0) {
-        char buf[16];
-        snprintf(buf, sizeof(buf), "%d dBm", lastDisplayRssi);
-        oled.drawString(64, 0, buf);
-    } else {
-        oled.drawString(64, 0, "Waiting...");
+    switch (displayMode) {
+        case DISP_FULL:
+            updateDisplayFull();
+            break;
+        case DISP_BIG_RSSI:
+            updateDisplayBigRssi();
+            break;
+        case DISP_OFF:
+            /* Just leave it blank */
+            break;
     }
-
-    /* Packet count and satellites */
-    oled.setFont(ArialMT_Plain_10);
-    oled.setTextAlignment(TEXT_ALIGN_LEFT);
-
-    char mid[32];
-    snprintf(mid, sizeof(mid), "Pkts: %d   Sats: %lu",
-             packetCount, gps.satellites.value());
-    oled.drawString(0, 30, mid);
-
-    /* GPS coordinates or status */
-    char gpsBuf[32];
-    if (gps.location.isValid()) {
-        snprintf(gpsBuf, sizeof(gpsBuf), "%.4f, %.4f",
-                 gps.location.lat(), gps.location.lng());
-    } else if (gps.charsProcessed() < 10) {
-        snprintf(gpsBuf, sizeof(gpsBuf), "GPS: no UART data");
-    } else {
-        snprintf(gpsBuf, sizeof(gpsBuf), "GPS: no fix (%lu msgs)",
-                 gps.passedChecksum());
-    }
-    oled.drawString(0, 42, gpsBuf);
-
-    /* Node ID and time since last packet */
-    char bot[32];
-    if (lastRxTime > 0) {
-        unsigned long ago = (millis() - lastRxTime) / 1000;
-        snprintf(bot, sizeof(bot), "%s   %lus ago", NODE_ID, ago);
-    } else {
-        snprintf(bot, sizeof(bot), "%s", NODE_ID);
-    }
-    oled.drawString(0, 54, bot);
 
     oled.display();
     ledSetColor(LED_OFF);   /* I2C on port P0 can glitch the NeoPixel data pin (P0_7) */
@@ -193,6 +274,9 @@ void setup(void)
 
     /* LED initialization (same as datalog sketch) */
     ledInit();
+
+    /* USER button for display mode toggle */
+    pinMode(USER_KEY, INPUT);
 
     Serial.begin(GPS_BAUD);        /* NEO-6M GPS on hardware UART (no Serial1 on AB01) */
 
@@ -259,6 +343,35 @@ void loop(void)
         while (Serial.available() > 0)
             gps.encode(Serial.read());
 
+        /* Cache valid GPS readings (last known good position) */
+        if (gps.location.isValid()) {
+            cachedLat = gps.location.lat();
+            cachedLon = gps.location.lng();
+            lastValidGpsTime = millis();
+        }
+        if (gps.altitude.isValid()) {
+            cachedAlt = gps.altitude.meters();
+        }
+        if (gps.satellites.isValid()) {
+            cachedSats = gps.satellites.value();
+        }
+
+        /* Check USER button for display mode toggle */
+        bool buttonState = digitalRead(USER_KEY);
+        if (buttonState == LOW && lastButtonState == HIGH &&
+            (millis() - lastButtonTime) > BUTTON_DEBOUNCE_MS) {
+            lastButtonTime = millis();
+            /* Cycle through modes: FULL -> BIG_RSSI -> OFF -> FULL */
+            if (displayMode == DISP_FULL)
+                displayMode = DISP_BIG_RSSI;
+            else if (displayMode == DISP_BIG_RSSI)
+                displayMode = DISP_OFF;
+            else
+                displayMode = DISP_FULL;
+            updateDisplay();  /* immediate feedback */
+        }
+        lastButtonState = buttonState;
+
         if (!rxDone) {
             delay(1);
             continue;
@@ -320,18 +433,18 @@ void loop(void)
             strncpy(lastCommandId, commandId, sizeof(lastCommandId) - 1);
             lastCommandId[sizeof(lastCommandId) - 1] = '\0';
 
-            float lat  = gps.location.isValid() ? (float)gps.location.lat() : 0.0f;
-            float lon  = gps.location.isValid() ? (float)gps.location.lng() : 0.0f;
-            float alt  = gps.altitude.isValid() ? (float)gps.altitude.meters() : 0.0f;
-            float sats = (float)gps.satellites.value();
-            float rssi = (float)rxRssi;
+            double lat  = cachedLat;
+            double lon  = cachedLon;
+            double alt  = cachedAlt;
+            double sats = (double)cachedSats;
+            double rssi = (double)rxRssi;
 
             Reading readings[] = {
-                { "Altitude",   SENSOR_ID_GPS, "m",   alt  },
-                { "Latitude",   SENSOR_ID_GPS, "deg", lat  },
-                { "Longitude",  SENSOR_ID_GPS, "deg", lon  },
-                { "RSSI",       SENSOR_ID_GPS, "dBm", rssi },
-                { "Satellites", SENSOR_ID_GPS, "",    sats },
+                { "alt",  SENSOR_ID_GPS, "m",   alt  },
+                { "lat",  SENSOR_ID_GPS, "deg", lat  },
+                { "lng",  SENSOR_ID_GPS, "deg", lon  },
+                { "rssi", SENSOR_ID_GPS, "dBm", rssi },
+                { "sats", SENSOR_ID_GPS, "",    sats },
             };
 
             char pkt[LORA_MAX_PAYLOAD + 1];
@@ -339,7 +452,7 @@ void loop(void)
                                          NODE_ID, 0u,
                                          readings, 5);
             if (pLen > 0 && pLen <= LORA_MAX_PAYLOAD) {
-                delay(50);  /* brief gap after ACK */
+                delay(150);  /* gap after ACK for gateway to be ready */
                 txDone = false;
                 Radio.Send((uint8_t *)pkt, pLen);
                 waitTx(3000);
