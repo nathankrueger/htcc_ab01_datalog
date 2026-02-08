@@ -196,6 +196,7 @@ static void ledInit(void)
 
 static void ledTest(void)
 {
+    static const int delayAmt = 5000;
     const char* colorNames[] = {
         "RED", "GREEN", "BLUE", "YELLOW", "CYAN", "MAGENTA", "WHITE"
     };
@@ -209,11 +210,52 @@ static void ledTest(void)
     for (int i = 0; i < numColors; i++) {
         DBG("  %s\n", colorNames[i]);
         ledSetColor(colors[i]);
-        delay(2000);
+        delay(delayAmt);
     }
 
     ledSetColor(LED_OFF);
     DBGLN("LED Test: Complete\n");
+
+    /*
+     * Raw byte diagnostic — bypasses Color() reordering.
+     * Watch the LED and note which PHYSICAL color appears for each step.
+     * This tells us the actual byte→channel mapping of the LED hardware.
+     */
+    DBGLN("LED Raw Byte Diagnostic:");
+
+    /* Byte 0 only */
+    DBGLN("  Byte0=255 (GRB→Green, RGB→Red)");
+    rgbLed.setPixelColor(0, (uint32_t)0xFF0000);  /* byte0=0xFF, byte1=0, byte2=0 */
+    rgbLed.show();
+    delay(delayAmt);
+
+    /* Byte 1 only */
+    DBGLN("  Byte1=255 (GRB→Red, RGB→Green)");
+    rgbLed.setPixelColor(0, (uint32_t)0x00FF00);  /* byte0=0, byte1=0xFF, byte2=0 */
+    rgbLed.show();
+    delay(delayAmt);
+
+    /* Byte 2 only */
+    DBGLN("  Byte2=255 (always Blue for GRB/RGB)");
+    rgbLed.setPixelColor(0, (uint32_t)0x0000FF);  /* byte0=0, byte1=0, byte2=0xFF */
+    rgbLed.show();
+    delay(delayAmt);
+
+    /* All off — if LED stays lit here, output is inverted (common anode) */
+    DBGLN("  ALL OFF (0,0,0) — should be dark. If lit → inverted/common-anode LED");
+    rgbLed.setPixelColor(0, (uint32_t)0x000000);
+    rgbLed.show();
+    delay(delayAmt);
+
+    /* All max — if LED is dark here, output is inverted */
+    DBGLN("  ALL MAX (255,255,255) — should be white. If dark → inverted LED");
+    rgbLed.setPixelColor(0, (uint32_t)0xFFFFFF);
+    rgbLed.show();
+    delay(delayAmt);
+
+    rgbLed.setPixelColor(0, (uint32_t)0x000000);
+    rgbLed.show();
+    DBGLN("LED Raw Diagnostic: Complete");
 }
 
 /* ─── Command Handlers ───────────────────────────────────────────────────── */
@@ -381,7 +423,7 @@ void setup(void)
     DBG("Initialization complete for Node: %s\n", NODE_ID);
 
     /* Test LED */
-    // ledTestBlink();
+    // ledTest();
 }
 
 void loop(void)
