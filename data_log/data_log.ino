@@ -103,6 +103,10 @@ static int8_t txPower = TX_OUTPUT_POWER;
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
 
+/* Cached ACK for duplicate handling - corresponds to lastCommandId */
+static char lastAckBuf[LORA_MAX_PAYLOAD];
+static int  lastAckLen = 0;
+
 /* Calculate RX window duration based on current duty cycle */
 static inline unsigned long getRxWindowMs(void)
 {
@@ -477,17 +481,16 @@ void loop(void)
                         CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
                         bool useEarlyAck = (handler == NULL || handler->earlyAck);
 
-                        /* For earlyAck handlers, send ACK before dispatch */
-                        if (useEarlyAck) {
-                            char ackBuf[128];
-                            int ackLen = buildAckPacket(ackBuf, sizeof(ackBuf),
+                        /* For earlyAck handlers, send ACK before dispatch (and cache it) */
+                        if (useEarlyAck && !isDuplicate) {
+                            lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
                                                         cmd.timestamp, cmd.crc, NODE_ID);
-                            if (ackLen > 0) {
+                            if (lastAckLen > 0) {
                                 Radio.Sleep();
                                 Radio.SetChannel(RF_N2G_FREQUENCY);
                                 txDone = false;
-                                Radio.Send((uint8_t *)ackBuf, ackLen);
-                                DBG("ACK sent on N2G [%d bytes]\n", ackLen);
+                                Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
+                                DBG("ACK sent on N2G [%d bytes]\n", lastAckLen);
 
                                 unsigned long ackStart = millis();
                                 while (!txDone && (millis() - ackStart) < 1000) {
@@ -502,9 +505,31 @@ void loop(void)
 
                         /* Dispatch to registered handlers (skip duplicates) */
                         if (isDuplicate) {
-                            DBG("CMD: Duplicate %s, ACK sent but skipping dispatch\n",
-                                          commandId);
+                            /*
+                             * Safety: isDuplicate is only true when commandId matches
+                             * lastCommandId, so lastAckBuf was built for this exact command.
+                             */
+                            DBG("CMD: Duplicate %s, resending cached ACK\n", commandId);
+
+                            /* Resend the cached ACK (handles both early and late ACK cases) */
+                            if (lastAckLen > 0) {
+                                Radio.Sleep();
+                                Radio.SetChannel(RF_N2G_FREQUENCY);
+                                txDone = false;
+                                Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
+                                DBG("Cached ACK resent [%d bytes]\n", lastAckLen);
+
+                                unsigned long ackStart = millis();
+                                while (!txDone && (millis() - ackStart) < 1000) {
+                                    Radio.IrqProcess();
+                                    delay(1);
+                                }
+                                Radio.Sleep();
+                                Radio.SetChannel(RF_G2N_FREQUENCY);
+                                Radio.Rx(0);
+                            }
                         } else {
+                            /* New command - update dedup tracking */
                             strncpy(lastCommandId, commandId,
                                     sizeof(lastCommandId) - 1);
                             lastCommandId[sizeof(lastCommandId) - 1] = '\0';
@@ -520,16 +545,15 @@ void loop(void)
 
                             /* For late-ACK handlers, send ACK with response after dispatch */
                             if (!useEarlyAck) {
-                                char ackBuf[LORA_MAX_PAYLOAD];
-                                int ackLen = buildAckPacketWithPayload(ackBuf, sizeof(ackBuf),
+                                lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
                                                                        cmd.timestamp, cmd.crc,
                                                                        NODE_ID, cmdResponseBuf);
-                                if (ackLen > 0) {
+                                if (lastAckLen > 0) {
                                     Radio.Sleep();
                                     Radio.SetChannel(RF_N2G_FREQUENCY);
                                     txDone = false;
-                                    Radio.Send((uint8_t *)ackBuf, ackLen);
-                                    DBG("ACK+payload sent on N2G [%d bytes]\n", ackLen);
+                                    Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
+                                    DBG("ACK+payload sent on N2G [%d bytes]\n", lastAckLen);
 
                                     unsigned long ackStart = millis();
                                     while (!txDone && (millis() - ackStart) < 1000) {
