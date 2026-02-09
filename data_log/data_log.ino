@@ -215,6 +215,17 @@ static void handleParams(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_
     DBG("PARAMS: responding with %s\n", cmdResponseBuf);
 }
 
+static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    if (arg_count < 1 || args[0][0] == '\0') {
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "\"\"");
+        return;
+    }
+    /* Return the argument as a JSON string in the response buffer */
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "\"%s\"", args[0]);
+    DBG("ECHO: responding with %s\n", cmdResponseBuf);
+}
+
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
 
 static void onTxDone(void)
@@ -306,6 +317,7 @@ void setup(void)
     cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
+    cmdRegister(&cmdRegistry, "echo",   handleEcho,   CMD_SCOPE_ANY, false);  /* returns data */
 
     DBG("Initialization complete for Node: %s\n", NODE_ID);
 
