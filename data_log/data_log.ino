@@ -22,6 +22,18 @@
   #define DBGP(msg)      ((void)0)
 #endif
 
+/* ─── CMD/ACK Debug ────────────────────────────────────────────────────── */
+
+#ifndef CMD_DEBUG
+#define CMD_DEBUG 0
+#endif
+
+#if CMD_DEBUG
+  #define CDBG(fmt, ...) Serial.printf("[%lu] " fmt, millis(), ##__VA_ARGS__)
+#else
+  #define CDBG(fmt, ...) ((void)0)
+#endif
+
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
 #ifndef NODE_ID
@@ -81,6 +93,10 @@ static int rxDutyPercent = RX_DUTY_PERCENT_DEFAULT;
 
 /* TX power - adjustable at runtime via "txpwr" command */
 static int8_t txPower = TX_OUTPUT_POWER;
+
+/* Non-blocking blink state */
+static bool          blinkActive  = false;
+static unsigned long blinkOffTime = 0;
 
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
@@ -148,10 +164,10 @@ static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
     }
     DBG(" seconds=%.2f brightness=%d\n", seconds, brightness);
 
-    /* Blink the LED */
+    /* Turn on LED — tick loop will turn it off after the timer expires */
     ledSetColorBrightness(color, brightness);
-    delay((unsigned long)(seconds * 1000.0f));
-    ledSetColor(LED_OFF);
+    blinkActive = true;
+    blinkOffTime = millis() + (unsigned long)(seconds * 1000.0f);
 }
 
 static void handleRxDuty(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
@@ -237,6 +253,7 @@ static void onTxDone(void)
 static void onRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
 {
     DBG("RX: Got packet! size=%d rssi=%d snr=%d\n", size, rssi, snr);
+    CDBG("RX_PKT size=%d rssi=%d\n", size, rssi);
     if (size > 0 && size <= LORA_MAX_PAYLOAD) {
         memcpy(rxBuffer, payload, size);
         rxLen = size;
@@ -268,6 +285,126 @@ static void onRxError(void)
 {
     DBGLN("RX: Error");
     Radio.Sleep();
+}
+
+/* ─── ACK + RX Resume Helper ─────────────────────────────────────────────── */
+
+/*
+ * Send an ACK buffer on N2G, wait for TX done, then switch back to G2N RX.
+ * Used by handleRxPacket() to avoid repeating this pattern 3 times.
+ */
+static void sendAckAndResumeRx(const char *buf, int len, const char *label)
+{
+    Radio.Sleep();
+    Radio.SetChannel(RF_N2G_FREQUENCY);
+    txDone = false;
+    Radio.Send((uint8_t *)buf, len);
+    DBG("%s [%d bytes]\n", label, len);
+    CDBG("ACK_TX %s bytes=%d\n", label, len);
+
+    unsigned long ackStart = millis();
+    while (!txDone && (millis() - ackStart) < 1000) {
+        Radio.IrqProcess();
+        delay(1);
+    }
+    Radio.Sleep();
+    Radio.SetChannel(RF_G2N_FREQUENCY);
+    Radio.Rx(0);
+}
+
+/* ─── RX Packet Handler ─────────────────────────────────────────────────── */
+
+/*
+ * Process a received packet from the RX buffer.
+ * Parses command, handles dedup, sends ACK, dispatches handler,
+ * and resumes RX on G2N.  Called from the tick loop when rxDone is set.
+ */
+static void handleRxPacket(void)
+{
+    DBGLN("RX: Processing received packet");
+
+    /* Skip padding bytes - find first '{' character */
+    uint8_t *jsonStart = rxBuffer;
+    int jsonLen = rxLen;
+    for (int i = 0; i < rxLen && i < 8; i++) {
+        if (rxBuffer[i] == '{') {
+            jsonStart = &rxBuffer[i];
+            jsonLen = rxLen - i;
+            break;
+        }
+    }
+
+    CommandPacket cmd;
+    if (!parseCommand(jsonStart, jsonLen, &cmd)) {
+        DBGLN("RX: Not a command packet, continuing to listen...");
+        CDBG("RX_DROP\n");
+        return;
+    }
+
+    DBG("RX: Valid command parsed: %s\n", cmd.cmd);
+
+    /* Check if for us (or broadcast) */
+    if (cmd.node_id[0] != '\0' && strcmp(cmd.node_id, NODE_ID) != 0) {
+        DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
+                      cmd.node_id, NODE_ID);
+        CDBG("RX_NOTME node=%s\n", cmd.node_id);
+        return;
+    }
+
+    /* Build command ID for dedup check */
+    char commandId[32];
+    snprintf(commandId, sizeof(commandId), "%u_%.4s",
+             cmd.timestamp, cmd.crc);
+    bool isDuplicate = (strcmp(commandId, lastCommandId) == 0);
+
+    DBG("CMD: %s (from %s, id=%s%s)\n",
+                  cmd.cmd,
+                  cmd.node_id[0] ? cmd.node_id : "broadcast",
+                  commandId,
+                  isDuplicate ? ", DUP" : "");
+    CDBG("CMD cmd=%s id=%s dup=%s\n",
+         cmd.cmd, commandId, isDuplicate ? "Y" : "N");
+
+    /* Look up handler to check earlyAck flag */
+    CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
+    bool useEarlyAck = (handler == NULL || handler->earlyAck);
+
+    /* For earlyAck handlers, send ACK before dispatch (and cache it) */
+    if (useEarlyAck && !isDuplicate) {
+        lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
+                                    cmd.timestamp, cmd.crc, NODE_ID);
+        if (lastAckLen > 0)
+            sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK sent on N2G");
+    }
+
+    /* Dispatch to registered handlers (skip duplicates) */
+    if (isDuplicate) {
+        DBG("CMD: Duplicate %s, resending cached ACK\n", commandId);
+        if (lastAckLen > 0)
+            sendAckAndResumeRx(lastAckBuf, lastAckLen, "Cached ACK resent");
+    } else {
+        /* New command - update dedup tracking */
+        strncpy(lastCommandId, commandId, sizeof(lastCommandId) - 1);
+        lastCommandId[sizeof(lastCommandId) - 1] = '\0';
+
+        /* Clear response buffer before dispatch */
+        cmdResponseBuf[0] = '\0';
+
+        if (handler != NULL) {
+            handler->callback(cmd.cmd,
+                              (char (*)[CMD_MAX_ARG_LEN])cmd.args,
+                              cmd.arg_count);
+        }
+
+        /* For late-ACK handlers, send ACK with response after dispatch */
+        if (!useEarlyAck) {
+            lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
+                                                   cmd.timestamp, cmd.crc,
+                                                   NODE_ID, cmdResponseBuf);
+            if (lastAckLen > 0)
+                sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK+payload sent on N2G");
+        }
+    }
 }
 
 /* ─── setup / loop ───────────────────────────────────────────────────────── */
@@ -313,7 +450,7 @@ void setup(void)
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, NODE_ID);
     cmdRegister(&cmdRegistry, "ping",   handlePing,   CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);   /* slow! */
+    cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
@@ -427,181 +564,57 @@ void loop(void)
             delay(100);   /* brief gap between split packets */
     }
 
-    /* ── Open RX window for commands on G2N channel ── */
+    /* ── Tick loop: RX + housekeeping until cycle ends ── */
     unsigned long rxWindowMs = getRxWindowMs();
+    unsigned long rxDeadline = cycleStart + TX_TIME_MS + rxWindowMs;
+    bool radioListening = false;
 
+    /* Start RX on G2N if duty cycle allows */
     if (rxWindowMs > 0) {
         DBG("Opening RX window for %lu ms on G2N (%.1f MHz)...\n",
                       rxWindowMs, RF_G2N_FREQUENCY / 1e6);
-
-        /* Switch to G2N channel for command reception */
+        CDBG("RX_OPEN dur=%lums\n", rxWindowMs);
         Radio.Sleep();
         Radio.SetChannel(RF_G2N_FREQUENCY);
-
         rxDone = false;
         rxLen = 0;
-
-        /* Use continuous RX mode - doesn't stop on packet reception */
         Radio.Rx(0);
-
-        unsigned long rxStart = millis();
-        bool commandReceived = false;
-
-        while ((millis() - rxStart) < rxWindowMs && !commandReceived) {
-            Radio.IrqProcess();
-
-            if (rxDone) {
-                DBGLN("RX: Processing received packet");
-
-                /* Skip padding bytes - find first '{' character */
-                uint8_t *jsonStart = rxBuffer;
-                int jsonLen = rxLen;
-                for (int i = 0; i < rxLen && i < 8; i++) {
-                    if (rxBuffer[i] == '{') {
-                        jsonStart = &rxBuffer[i];
-                        jsonLen = rxLen - i;
-                        break;
-                    }
-                }
-
-                CommandPacket cmd;
-                if (parseCommand(jsonStart, jsonLen, &cmd)) {
-                    DBG("RX: Valid command parsed: %s\n", cmd.cmd);
-                    /* Check if for us (or broadcast) */
-                    if (cmd.node_id[0] == '\0' || strcmp(cmd.node_id, NODE_ID) == 0) {
-                        /* Build command ID for dedup check */
-                        char commandId[32];
-                        snprintf(commandId, sizeof(commandId), "%u_%.4s",
-                                 cmd.timestamp, cmd.crc);
-                        bool isDuplicate = (strcmp(commandId, lastCommandId) == 0);
-
-                        DBG("CMD: %s (from %s, id=%s%s)\n",
-                                      cmd.cmd,
-                                      cmd.node_id[0] ? cmd.node_id : "broadcast",
-                                      commandId,
-                                      isDuplicate ? ", DUP" : "");
-
-                        /* Look up handler to check earlyAck flag */
-                        CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
-                        bool useEarlyAck = (handler == NULL || handler->earlyAck);
-
-                        /* For earlyAck handlers, send ACK before dispatch (and cache it) */
-                        if (useEarlyAck && !isDuplicate) {
-                            lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
-                                                        cmd.timestamp, cmd.crc, NODE_ID);
-                            if (lastAckLen > 0) {
-                                Radio.Sleep();
-                                Radio.SetChannel(RF_N2G_FREQUENCY);
-                                txDone = false;
-                                Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
-                                DBG("ACK sent on N2G [%d bytes]\n", lastAckLen);
-
-                                unsigned long ackStart = millis();
-                                while (!txDone && (millis() - ackStart) < 1000) {
-                                    Radio.IrqProcess();
-                                    delay(1);
-                                }
-                                Radio.Sleep();
-                                Radio.SetChannel(RF_G2N_FREQUENCY);
-                                Radio.Rx(0);
-                            }
-                        }
-
-                        /* Dispatch to registered handlers (skip duplicates) */
-                        if (isDuplicate) {
-                            /*
-                             * Safety: isDuplicate is only true when commandId matches
-                             * lastCommandId, so lastAckBuf was built for this exact command.
-                             */
-                            DBG("CMD: Duplicate %s, resending cached ACK\n", commandId);
-
-                            /* Resend the cached ACK (handles both early and late ACK cases) */
-                            if (lastAckLen > 0) {
-                                Radio.Sleep();
-                                Radio.SetChannel(RF_N2G_FREQUENCY);
-                                txDone = false;
-                                Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
-                                DBG("Cached ACK resent [%d bytes]\n", lastAckLen);
-
-                                unsigned long ackStart = millis();
-                                while (!txDone && (millis() - ackStart) < 1000) {
-                                    Radio.IrqProcess();
-                                    delay(1);
-                                }
-                                Radio.Sleep();
-                                Radio.SetChannel(RF_G2N_FREQUENCY);
-                                Radio.Rx(0);
-                            }
-                        } else {
-                            /* New command - update dedup tracking */
-                            strncpy(lastCommandId, commandId,
-                                    sizeof(lastCommandId) - 1);
-                            lastCommandId[sizeof(lastCommandId) - 1] = '\0';
-
-                            /* Clear response buffer before dispatch */
-                            cmdResponseBuf[0] = '\0';
-
-                            if (handler != NULL) {
-                                handler->callback(cmd.cmd,
-                                                  (char (*)[CMD_MAX_ARG_LEN])cmd.args,
-                                                  cmd.arg_count);
-                            }
-
-                            /* For late-ACK handlers, send ACK with response after dispatch */
-                            if (!useEarlyAck) {
-                                lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
-                                                                       cmd.timestamp, cmd.crc,
-                                                                       NODE_ID, cmdResponseBuf);
-                                if (lastAckLen > 0) {
-                                    Radio.Sleep();
-                                    Radio.SetChannel(RF_N2G_FREQUENCY);
-                                    txDone = false;
-                                    Radio.Send((uint8_t *)lastAckBuf, lastAckLen);
-                                    DBG("ACK+payload sent on N2G [%d bytes]\n", lastAckLen);
-
-                                    unsigned long ackStart = millis();
-                                    while (!txDone && (millis() - ackStart) < 1000) {
-                                        Radio.IrqProcess();
-                                        delay(1);
-                                    }
-                                    Radio.Sleep();
-                                    Radio.SetChannel(RF_G2N_FREQUENCY);
-                                    Radio.Rx(0);
-                                }
-                            }
-                        }
-                        commandReceived = true;  /* Exit loop after handling command */
-                    } else {
-                        DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
-                                      cmd.node_id, NODE_ID);
-                    }
-                } else {
-                    DBGLN("RX: Not a command packet, continuing to listen...");
-                }
-
-                /* Reset flags - radio stays in continuous RX mode */
-                rxDone = false;
-                rxLen = 0;
-            }
-
-            delay(1);
-        }
-
-        if (!commandReceived) {
-            DBGLN("RX: Window closed, no command received");
-        }
-
-        /* Switch back to N2G for next sensor TX */
-        Radio.Sleep();
-        Radio.SetChannel(RF_N2G_FREQUENCY);
+        radioListening = true;
     } else {
         DBGLN("RX disabled (rxDutyPercent=0)");
         Radio.Sleep();
     }
 
-    /* Wait remaining cycle time */
-    unsigned long elapsed = millis() - cycleStart;
-    if (elapsed < CYCLE_PERIOD_MS) {
-        delay(CYCLE_PERIOD_MS - elapsed);
+    while (millis() - cycleStart < CYCLE_PERIOD_MS) {
+        Radio.IrqProcess();
+
+        /* Handle received packet */
+        if (rxDone) {
+            handleRxPacket();
+            rxDone = false;
+            rxLen = 0;
+            /* onRxDone() calls Radio.Sleep(); re-enter RX if window still open */
+            if (radioListening) Radio.Rx(0);
+        }
+
+        /* Stop radio after RX window expires */
+        if (radioListening && millis() >= rxDeadline) {
+            DBGLN("RX: Window closed");
+            CDBG("RX_CLOSE\n");
+            Radio.Sleep();
+            radioListening = false;
+        }
+
+        /* Non-blocking blink: turn off LED when timer expires */
+        if (blinkActive && millis() >= blinkOffTime) {
+            ledOff();
+            blinkActive = false;
+        }
+
+        delay(1);
     }
+
+    /* Ensure clean state for next cycle */
+    if (radioListening) Radio.Sleep();
+    Radio.SetChannel(RF_N2G_FREQUENCY);
 }
