@@ -231,14 +231,30 @@ static void handleParams(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_
     DBG("PARAMS: responding with %s\n", cmdResponseBuf);
 }
 
+static void handleReset(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    /* Optional delay in seconds (default 0 = immediate) */
+    float seconds = 0.0f;
+    if (arg_count >= 1) {
+        seconds = strtof(args[0], NULL);
+        if (seconds < 0.0f) seconds = 0.0f;
+    }
+
+    DBG("RESET: rebooting in %.1f s...\n", seconds);
+    if (seconds > 0.0f)
+        delay((unsigned long)(seconds * 1000.0f));
+    delay(100);  /* let debug output flush */
+    NVIC_SystemReset();
+}
+
 static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 1 || args[0][0] == '\0') {
-        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "\"\"");
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"\"}");
         return;
     }
-    /* Return the argument as a JSON string in the response buffer */
-    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "\"%s\"", args[0]);
+    /* Return the argument as a JSON object in the response buffer */
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"%s\"}", args[0]);
     DBG("ECHO: responding with %s\n", cmdResponseBuf);
 }
 
@@ -455,6 +471,7 @@ void setup(void)
     cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
     cmdRegister(&cmdRegistry, "echo",   handleEcho,   CMD_SCOPE_ANY, false);  /* returns data */
+    cmdRegister(&cmdRegistry, "reset",  handleReset,  CMD_SCOPE_ANY, true);
 
     DBG("Initialization complete for Node: %s\n", NODE_ID);
 
