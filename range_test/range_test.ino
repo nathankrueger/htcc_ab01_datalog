@@ -46,6 +46,15 @@
 
 #define GPS_BAUD                 9600
 
+/*
+ * GPS_LED: show GPS status on NeoPixel (green=fix, yellow=acquiring).
+ * Default off to avoid clashing with red ping-received blink.
+ * Enable:  make SKETCH=range_test GPS_LED=1
+ */
+#ifndef GPS_LED
+#define GPS_LED                  0
+#endif
+
 /* ─── Hardware Objects ──────────────────────────────────────────────────── */
 
 /* SSD1306 OLED 128x64, I2C addr 0x3C, no reset pin */
@@ -319,7 +328,17 @@ void setup(void)
 
 void loop(void)
 {
-    ledSetColor(LED_OFF);   /* ensure LED is off at start of every cycle */
+    /* GPS status LED (off by default, enable with GPS_LED=1) */
+#if GPS_LED
+    if (gps.location.isValid())
+        ledSetColor(LED_GREEN);
+    else if (lastGpsCharTime > 0 && (millis() - lastGpsCharTime) < GPS_UART_TIMEOUT_MS)
+        ledSetColor(LED_YELLOW);
+    else
+        ledSetColor(LED_OFF);
+#else
+    ledSetColor(LED_OFF);
+#endif
 
     /* ── Feed GPS ── */
     while (Serial.available() > 0)

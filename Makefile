@@ -69,7 +69,8 @@ LED_ORDER ?= GRB
 # String defines (will be quoted)
 STRING_DEFINES = NODE_ID LED_ORDER
 # Numeric defines (no quotes)
-NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG
+GPS_LED ?= 0
+NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG GPS_LED
 
 # Build the combined define strings for C and C++ flags
 # String defines get quotes, numeric defines don't
