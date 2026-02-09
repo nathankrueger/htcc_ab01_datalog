@@ -55,6 +55,16 @@
 #define GPS_LED                  0
 #endif
 
+/* OLED brightness potentiometer on ADC pin (GPIO1 / P0_1)
+ * Connect: 3.3V — [pot] — GND, wiper to ADC pin */
+#define OLED_BRIGHTNESS_PIN      ADC
+
+/* SSD1306 contrast command */
+#define SSD1306_SETCONTRAST      0x81
+
+/* Max RGB LED brightness (0-255, but 32 is plenty bright) */
+#define MAX_LED_BRIGHTNESS       32
+
 /* ─── Hardware Objects ──────────────────────────────────────────────────── */
 
 /* SSD1306 OLED 128x64, I2C addr 0x3C, no reset pin */
@@ -107,6 +117,11 @@ static unsigned long lastButtonTime = 0;
 #define RSSI_MIN -120
 #define RSSI_MAX -40
 
+/* Pot-controlled brightness, updated each display cycle */
+static uint8_t oledContrast = 128;      /* 0-255 for OLED */
+static uint8_t ledBrightness = 16;      /* 0-MAX_LED_BRIGHTNESS for RGB */
+static int rawPotValue = 0;             /* raw ADC reading for debug */
+
 /* ─── OLED Display ──────────────────────────────────────────────────────── */
 
 static void updateDisplayFull(void)
@@ -124,8 +139,8 @@ static void updateDisplayFull(void)
     }
     oled.drawString(0, 0, buf);
 
-    /* Line 2: Packet count + satellites */
-    snprintf(buf, sizeof(buf), "Pkts: %d  Sats: %lu", packetCount, cachedSats);
+    /* Line 2: Packet count + satellites + raw ADC (for calibration) */
+    snprintf(buf, sizeof(buf), "Pkts:%d Sat:%lu A:%d", packetCount, cachedSats, rawPotValue);
     oled.drawString(0, 13, buf);
 
     /* Line 3: GPS status - check if UART is active */
@@ -203,8 +218,26 @@ static void updateDisplayBigRssi(void)
     }
 }
 
+/* Send a command byte to SSD1306 via I2C (sendCommand is private in HT lib) */
+static void oledCommand(uint8_t cmd)
+{
+    Wire.beginTransmission(0x3C);
+    Wire.write(0x00);   /* Co=0, D/C#=0: command mode */
+    Wire.write(cmd);
+    Wire.endTransmission();
+}
+
 static void updateDisplay(void)
 {
+    /* Read brightness pot with averaging to reduce noise */
+    long sum = 0;
+    for (int i = 0; i < 8; i++) {
+        sum += analogRead(OLED_BRIGHTNESS_PIN);
+    }
+    rawPotValue = sum / 8;
+    oledContrast = map(rawPotValue, 0, 4095, 0, 255);
+    ledBrightness = map(rawPotValue, 0, 4095, 0, MAX_LED_BRIGHTNESS);
+
     oled.clear();
 
     switch (displayMode) {
@@ -220,6 +253,12 @@ static void updateDisplay(void)
     }
 
     oled.display();
+
+    /* Set OLED contrast AFTER display() since library may reset it.
+     * Note: SSD1306 contrast range is hardware-limited, not very dramatic. */
+    oledCommand(SSD1306_SETCONTRAST);
+    oledCommand(oledContrast);
+
     ledSetColor(LED_OFF);   /* I2C on port P0 can glitch the NeoPixel data pin (P0_7) */
 }
 
@@ -403,6 +442,15 @@ void loop(void)
         }
         lastButtonState = buttonState;
 
+#if DEBUG
+        /* Frequent display refresh when debugging */
+        static unsigned long lastDebugDisplay = 0;
+        if ((millis() - lastDebugDisplay) >= 250) {
+            lastDebugDisplay = millis();
+            updateDisplay();
+        }
+#endif
+
         if (!rxDone) {
             delay(1);
             continue;
@@ -441,9 +489,9 @@ void loop(void)
                  cmd.timestamp, cmd.crc);
         bool isDuplicate = (strcmp(commandId, lastCommandId) == 0);
 
-        /* ── Turn on red LED ── */
+        /* ── Turn on red LED (brightness from pot, max 32) ── */
         unsigned long ledOnAt = millis();
-        ledSetColor(LED_RED);
+        ledSetRGB(ledBrightness, 0, 0);
 
         /* ── Send ACK on N2G ── */
         Radio.Sleep();
