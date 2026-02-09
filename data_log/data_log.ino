@@ -70,6 +70,12 @@
 /* TX power for normal sensor operation (see radio.h for limits) */
 #define TX_OUTPUT_POWER          DEFAULT_TX_POWER
 
+/* Max random delay (ms) before ACKing a broadcast command.
+ * Prevents ACK collisions when multiple nodes respond simultaneously. */
+#ifndef BROADCAST_ACK_JITTER_MS
+#define BROADCAST_ACK_JITTER_MS  500
+#endif
+
 /*
  * Sensor-class IDs are assigned by alphabetical sort of the Python class names
  * at import time in sensors/__init__.py.  Current registry:
@@ -309,8 +315,14 @@ static void onRxError(void)
  * Send an ACK buffer on N2G, wait for TX done, then switch back to G2N RX.
  * Used by handleRxPacket() to avoid repeating this pattern 3 times.
  */
-static void sendAckAndResumeRx(const char *buf, int len, const char *label)
+static void sendAckAndResumeRx(const char *buf, int len, const char *label,
+                               bool addJitter = false)
 {
+    if (addJitter && BROADCAST_ACK_JITTER_MS > 0) {
+        unsigned long jitter = random(1, BROADCAST_ACK_JITTER_MS);
+        DBG("Broadcast ACK jitter: %lums\n", jitter);
+        delay(jitter);
+    }
     Radio.Sleep();
     Radio.SetChannel(RF_N2G_FREQUENCY);
     txDone = false;
@@ -381,23 +393,24 @@ static void handleRxPacket(void)
     CDBG("CMD cmd=%s id=%s dup=%s\n",
          cmd.cmd, commandId, isDuplicate ? "Y" : "N");
 
-    /* Look up handler to check earlyAck flag */
+    /* Look up handler to check earlyAck / ackJitter flags */
     CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
     bool useEarlyAck = (handler == NULL || handler->earlyAck);
+    bool addJitter = (handler != NULL && handler->ackJitter);
 
     /* For earlyAck handlers, send ACK before dispatch (and cache it) */
     if (useEarlyAck && !isDuplicate) {
         lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
                                     cmd.timestamp, cmd.crc, NODE_ID);
         if (lastAckLen > 0)
-            sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK sent on N2G");
+            sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK sent on N2G", addJitter);
     }
 
     /* Dispatch to registered handlers (skip duplicates) */
     if (isDuplicate) {
         DBG("CMD: Duplicate %s, resending cached ACK\n", commandId);
         if (lastAckLen > 0)
-            sendAckAndResumeRx(lastAckBuf, lastAckLen, "Cached ACK resent");
+            sendAckAndResumeRx(lastAckBuf, lastAckLen, "Cached ACK resent", addJitter);
     } else {
         /* New command - update dedup tracking */
         strncpy(lastCommandId, commandId, sizeof(lastCommandId) - 1);
@@ -418,7 +431,7 @@ static void handleRxPacket(void)
                                                    cmd.timestamp, cmd.crc,
                                                    NODE_ID, cmdResponseBuf);
             if (lastAckLen > 0)
-                sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK+payload sent on N2G");
+                sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK+payload sent on N2G", addJitter);
         }
     }
 }
@@ -466,6 +479,7 @@ void setup(void)
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, NODE_ID);
     cmdRegister(&cmdRegistry, "ping",   handlePing,   CMD_SCOPE_ANY, true);
+    cmdRegister(&cmdRegistry, "discover", handlePing, CMD_SCOPE_BROADCAST, true, true);
     cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);

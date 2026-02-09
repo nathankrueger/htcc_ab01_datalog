@@ -482,6 +482,7 @@ typedef struct {
     CommandCallback  callback;
     CommandScope     scope;
     bool             earlyAck;  /* true = ACK before handler, false = after (for responses) */
+    bool             ackJitter; /* true = random delay before ACK (for discovery) */
 } CommandHandler;
 
 typedef struct {
@@ -504,7 +505,7 @@ static inline void cmdRegistryInit(CommandRegistry *reg, const char *nodeId)
  */
 static inline bool cmdRegister(CommandRegistry *reg, const char *cmd,
                                CommandCallback callback, CommandScope scope,
-                               bool earlyAck)
+                               bool earlyAck, bool ackJitter = false)
 {
     if (reg->count >= CMD_REGISTRY_MAX) return false;
 
@@ -512,6 +513,7 @@ static inline bool cmdRegister(CommandRegistry *reg, const char *cmd,
     reg->handlers[reg->count].callback = callback;
     reg->handlers[reg->count].scope = scope;
     reg->handlers[reg->count].earlyAck = earlyAck;
+    reg->handlers[reg->count].ackJitter = ackJitter;
     reg->count++;
     return true;
 }
