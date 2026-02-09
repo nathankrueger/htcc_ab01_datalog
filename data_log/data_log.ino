@@ -136,10 +136,20 @@ static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
             return;
         }
     }
-    DBG(" seconds=%.2f\n", seconds);
+    /* Parse optional brightness argument (default LED_BRIGHTNESS) */
+    uint8_t brightness = LED_BRIGHTNESS;
+    if (arg_count >= 3) {
+        int val = atoi(args[2]);
+        if (val < 0 || val > 255) {
+            DBGLN(" ERROR: brightness must be 0-255");
+            return;
+        }
+        brightness = (uint8_t)val;
+    }
+    DBG(" seconds=%.2f brightness=%d\n", seconds, brightness);
 
     /* Blink the LED */
-    ledSetColor(color);
+    ledSetColorBrightness(color, brightness);
     delay((unsigned long)(seconds * 1000.0f));
     ledSetColor(LED_OFF);
 }

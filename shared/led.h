@@ -83,11 +83,10 @@ static void ledOff(void)
 }
 
 /**
- * Set the LED to a predefined color.
+ * Set the LED to a predefined color at the given brightness (0-255).
  */
-static void ledSetColor(LEDColor color)
+static void ledSetColorBrightness(LEDColor color, uint8_t brightness)
 {
-    uint8_t brightness = LED_BRIGHTNESS;
     switch (color) {
         case LED_OFF:
             ledOff();
@@ -117,6 +116,14 @@ static void ledSetColor(LEDColor color)
             ledOff();
             break;
     }
+}
+
+/**
+ * Set the LED to a predefined color at the default brightness.
+ */
+static void ledSetColor(LEDColor color)
+{
+    ledSetColorBrightness(color, LED_BRIGHTNESS);
 }
 
 /**
