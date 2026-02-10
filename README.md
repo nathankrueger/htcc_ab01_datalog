@@ -36,6 +36,7 @@ make upload
 # 4. Open serial monitor
 make monitor
 ```
+* For Windows / WSL usage, install the serial driver: https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads
 
 ## Configuration
 

@@ -65,18 +65,30 @@ SEND_INTERVAL_MS ?= 5000
 LED_BRIGHTNESS ?= 16
 DEBUG ?= 1
 LED_ORDER ?= GRB
+UPDATE_CFG ?= 0
+NODE_VERSION ?= 1
 
 # String defines (will be quoted)
 STRING_DEFINES = NODE_ID LED_ORDER
 # Numeric defines (no quotes)
 GPS_LED ?= 0
 CMD_DEBUG ?= 0
-NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG GPS_LED CMD_DEBUG
+NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG GPS_LED CMD_DEBUG UPDATE_CFG NODE_VERSION
 
 # Build the combined define strings for C and C++ flags
 # String defines get quotes, numeric defines don't
 STRING_DEFS = $(foreach def,$(STRING_DEFINES),-D$(def)=\"$($(def))\")
 NUMERIC_DEFS = $(foreach def,$(NUMERIC_DEFINES),-D$(def)=$($(def)))
+
+# Optional config overrides — only passed to compiler when set on command line.
+# e.g.:  make upload TX_OUTPUT_POWER=20 RX_DUTY_PERCENT_DEFAULT=50
+ifdef TX_OUTPUT_POWER
+  NUMERIC_DEFS += -DTX_OUTPUT_POWER=$(TX_OUTPUT_POWER)
+endif
+ifdef RX_DUTY_PERCENT_DEFAULT
+  NUMERIC_DEFS += -DRX_DUTY_PERCENT_DEFAULT=$(RX_DUTY_PERCENT_DEFAULT)
+endif
+
 ALL_DEFS = $(STRING_DEFS) $(NUMERIC_DEFS)
 
 # Include path for shared headers (packets.h, etc.)

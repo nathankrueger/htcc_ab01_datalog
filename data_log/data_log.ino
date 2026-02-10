@@ -4,6 +4,7 @@
 #include <Adafruit_BME280.h>
 #include "packets.h"
 #include "radio.h"
+#include "config.h"
 #include "led.h"
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
@@ -36,9 +37,8 @@
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
-#ifndef NODE_ID
-#define NODE_ID                  "ab01"
-#endif
+/* NODE_ID, NODE_VERSION, TX_OUTPUT_POWER, RX_DUTY_PERCENT_DEFAULT,
+ * and UPDATE_CFG are defined in config.h (overridable via Makefile). */
 
 /*
  * Timing / Power Configuration
@@ -57,18 +57,11 @@
 #define CYCLE_PERIOD_MS          5000         /* Total cycle time */
 #endif
 
-#ifndef RX_DUTY_PERCENT_DEFAULT
-#define RX_DUTY_PERCENT_DEFAULT  90           /* 0-100, initial value */
-#endif
-
 #define TX_TIME_MS               200          /* Estimated TX time */
 
 #ifndef LED_BRIGHTNESS
 #define LED_BRIGHTNESS           128          /* 0-255, default brightness */
 #endif
-
-/* TX power for normal sensor operation (see radio.h for limits) */
-#define TX_OUTPUT_POWER          DEFAULT_TX_POWER
 
 /* Max random delay (ms) before ACKing a broadcast command.
  * Prevents ACK collisions when multiple nodes respond simultaneously. */
@@ -93,12 +86,13 @@
 static RadioEvents_t radioEvents;
 static Adafruit_BME280 bme;
 static bool bmeOk = false;
+static NodeConfig cfg;
 
 /* RX duty cycle - adjustable at runtime via "rxduty" command */
-static int rxDutyPercent = RX_DUTY_PERCENT_DEFAULT;
+static int rxDutyPercent;
 
 /* TX power - adjustable at runtime via "txpwr" command */
-static int8_t txPower = TX_OUTPUT_POWER;
+static int8_t txPower;
 
 /* Non-blocking blink state */
 static bool          blinkActive  = false;
@@ -264,6 +258,20 @@ static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
     DBG("ECHO: responding with %s\n", cmdResponseBuf);
 }
 
+static void handleSaveCfg(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    /* Snapshot current runtime values into the config struct */
+    cfg.txOutputPower = txPower;
+    cfg.rxDutyPercent = (uint8_t)rxDutyPercent;
+
+    bool written = cfgSave(&cfg);
+    const char *msg = written ? "saved" : "unchanged";
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
+             "{\"cfg\":\"%s\",\"n\":\"%s\",\"v\":%u,\"tx\":%d,\"rx\":%d}",
+             msg, cfg.nodeId, cfg.nodeVersion, cfg.txOutputPower, cfg.rxDutyPercent);
+    DBG("SAVECFG: %s\n", cmdResponseBuf);
+}
+
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
 
 static void onTxDone(void)
@@ -372,9 +380,9 @@ static void handleRxPacket(void)
     DBG("RX: Valid command parsed: %s\n", cmd.cmd);
 
     /* Check if for us (or broadcast) */
-    if (cmd.node_id[0] != '\0' && strcmp(cmd.node_id, NODE_ID) != 0) {
+    if (cmd.node_id[0] != '\0' && strcmp(cmd.node_id, cfg.nodeId) != 0) {
         DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
-                      cmd.node_id, NODE_ID);
+                      cmd.node_id, cfg.nodeId);
         CDBG("RX_NOTME node=%s\n", cmd.node_id);
         return;
     }
@@ -401,7 +409,7 @@ static void handleRxPacket(void)
     /* For earlyAck handlers, send ACK before dispatch (and cache it) */
     if (useEarlyAck && !isDuplicate) {
         lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
-                                    cmd.timestamp, cmd.crc, NODE_ID);
+                                    cmd.timestamp, cmd.crc, cfg.nodeId);
         if (lastAckLen > 0)
             sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK sent on N2G", addJitter);
     }
@@ -429,7 +437,7 @@ static void handleRxPacket(void)
         if (!useEarlyAck) {
             lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
                                                    cmd.timestamp, cmd.crc,
-                                                   NODE_ID, cmdResponseBuf);
+                                                   cfg.nodeId, cmdResponseBuf);
             if (lastAckLen > 0)
                 sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK+payload sent on N2G", addJitter);
         }
@@ -452,6 +460,12 @@ void setup(void)
     ledInit();
 
     Serial.begin(115200);
+
+    /* Load config from EEPROM (or compile-time defaults on first boot).
+     * When UPDATE_CFG=1, compile-time values are written to EEPROM. */
+    cfgLoad(&cfg);
+    rxDutyPercent = cfg.rxDutyPercent;
+    txPower       = cfg.txOutputPower;
 
     /* BME280 — try both common I2C addresses */
     bmeOk = bme.begin(0x76);
@@ -477,7 +491,7 @@ void setup(void)
                       0, true, 0, 0, LORA_IQ_INVERSION_ON, true);
 
     /* Command registry */
-    cmdRegistryInit(&cmdRegistry, NODE_ID);
+    cmdRegistryInit(&cmdRegistry, cfg.nodeId);
     cmdRegister(&cmdRegistry, "ping",   handlePing,   CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "discover", handlePing, CMD_SCOPE_BROADCAST, true, true);
     cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);
@@ -486,8 +500,10 @@ void setup(void)
     cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
     cmdRegister(&cmdRegistry, "echo",   handleEcho,   CMD_SCOPE_ANY, false);  /* returns data */
     cmdRegister(&cmdRegistry, "reset",  handleReset,  CMD_SCOPE_ANY, true);
+    cmdRegister(&cmdRegistry, "savecfg", handleSaveCfg, CMD_SCOPE_PRIVATE, false); /* returns data */
 
-    DBG("Initialization complete for Node: %s\n", NODE_ID);
+    DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
+        cfg.nodeId, cfg.nodeVersion, cfg.txOutputPower, cfg.rxDutyPercent);
 
     /* Test LED */
     // ledTest();
@@ -564,7 +580,7 @@ void loop(void)
         /* shrink the window until the packet fits */
         while (end > start) {
             pLen = buildSensorPacket(pkt, sizeof(pkt),
-                                     NODE_ID, 0u,
+                                     cfg.nodeId, 0u,
                                      &readings[start], end - start);
             if (pLen > 0 && pLen <= LORA_MAX_PAYLOAD) break;
             end--;

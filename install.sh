@@ -12,6 +12,8 @@
 #   4. Install the CubeCell Development Framework core
 #   5. Install the Adafruit BME280 library (+ its deps)
 #   6. Run a test compile to confirm everything works
+#
+#   *** Serial driver for Windows: https://www.silabs.com/software-and-tools/usb-to-uart-bridge-vcp-drivers?tab=downloads
 
 set -euo pipefail
 
