@@ -258,6 +258,17 @@ static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
     DBG("ECHO: responding with %s\n", cmdResponseBuf);
 }
 
+static void handleTestLed(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    unsigned long delayMs = 5000;
+    if (arg_count >= 1) {
+        long val = atol(args[0]);
+        if (val > 0) delayMs = (unsigned long)val;
+    }
+    DBG("TESTLED: cycling colors, %lums per step\n", delayMs);
+    ledTest(delayMs);
+}
+
 static void handleSaveCfg(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     /* Snapshot current runtime values into the config struct */
@@ -501,12 +512,10 @@ void setup(void)
     cmdRegister(&cmdRegistry, "echo",   handleEcho,   CMD_SCOPE_ANY, false);  /* returns data */
     cmdRegister(&cmdRegistry, "reset",  handleReset,  CMD_SCOPE_ANY, true);
     cmdRegister(&cmdRegistry, "savecfg", handleSaveCfg, CMD_SCOPE_PRIVATE, false); /* returns data */
+    cmdRegister(&cmdRegistry, "testled", handleTestLed, CMD_SCOPE_ANY, true);
 
     DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
         cfg.nodeId, cfg.nodeVersion, cfg.txOutputPower, cfg.rxDutyPercent);
-
-    /* Test LED */
-    // ledTest();
 }
 
 void loop(void)

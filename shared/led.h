@@ -154,11 +154,11 @@ static LEDColor parseColor(const char *colorStr)
 
 /**
  * Cycle through all colors for diagnostic testing.
- * Each color is shown for 5 seconds.
+ * @param delayMs  milliseconds per step (default 5000)
  */
-static void ledTest(void)
+static void ledTest(unsigned long delayMs = 5000)
 {
-    static const int delayAmt = 5000;
+    const unsigned long delayAmt = delayMs;
     LEDColor colors[] = {
         LED_RED, LED_GREEN, LED_BLUE, LED_YELLOW, LED_CYAN, LED_MAGENTA, LED_WHITE
     };
