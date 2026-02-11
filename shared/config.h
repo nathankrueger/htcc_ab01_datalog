@@ -45,6 +45,14 @@
 #define BANDWIDTH_DEFAULT        LORA_BANDWIDTH  /* 0 = 125 kHz, from radio.h */
 #endif
 
+#ifndef N2G_FREQUENCY_DEFAULT
+#define N2G_FREQUENCY_DEFAULT    RF_N2G_FREQUENCY  /* 915 MHz, from radio.h */
+#endif
+
+#ifndef G2N_FREQUENCY_DEFAULT
+#define G2N_FREQUENCY_DEFAULT    RF_G2N_FREQUENCY  /* 915.5 MHz, from radio.h */
+#endif
+
 #ifndef UPDATE_CFG
 #define UPDATE_CFG               0
 #endif
@@ -62,10 +70,12 @@ static inline void cfgDefaults(NodeConfig *c)
     c->cfgVersion = CFG_VERSION;
     strncpy(c->nodeId, NODE_ID, sizeof(c->nodeId) - 1);
     c->nodeId[sizeof(c->nodeId) - 1] = '\0';
-    c->txOutputPower  = TX_OUTPUT_POWER;
-    c->rxDutyPercent  = RX_DUTY_PERCENT_DEFAULT;
+    c->txOutputPower   = TX_OUTPUT_POWER;
+    c->rxDutyPercent   = RX_DUTY_PERCENT_DEFAULT;
     c->spreadingFactor = SPREADING_FACTOR_DEFAULT;
     c->bandwidth       = BANDWIDTH_DEFAULT;
+    c->n2gFrequencyHz  = N2G_FREQUENCY_DEFAULT;
+    c->g2nFrequencyHz  = G2N_FREQUENCY_DEFAULT;
 }
 
 /*

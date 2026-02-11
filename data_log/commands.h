@@ -23,6 +23,8 @@ extern uint8_t       rxDutyPercent;
 extern int8_t        txPower;
 extern uint8_t       spreadFactor;
 extern uint8_t       loraBW;
+extern uint32_t      n2gFreqHz;
+extern uint32_t      g2nFreqHz;
 extern bool          blinkActive;
 extern unsigned long blinkOffTime;
 

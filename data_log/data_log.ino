@@ -83,6 +83,8 @@ uint8_t       rxDutyPercent;
 int8_t        txPower;
 uint8_t       spreadFactor;   /* SF7-SF12 */
 uint8_t       loraBW;         /* 0=125kHz, 1=250kHz, 2=500kHz */
+uint32_t      n2gFreqHz;      /* Node-to-Gateway frequency (Hz) */
+uint32_t      g2nFreqHz;      /* Gateway-to-Node frequency (Hz) */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
 
@@ -170,7 +172,7 @@ static void sendAckAndResumeRx(const char *buf, int len, const char *label,
         delay(jitter);
     }
     Radio.Sleep();
-    Radio.SetChannel(RF_N2G_FREQUENCY);
+    Radio.SetChannel(n2gFreqHz);
     txDone = false;
     Radio.Send((uint8_t *)buf, len);
     DBG("%s [%d bytes]\n", label, len);
@@ -182,7 +184,7 @@ static void sendAckAndResumeRx(const char *buf, int len, const char *label,
         delay(1);
     }
     Radio.Sleep();
-    Radio.SetChannel(RF_G2N_FREQUENCY);
+    Radio.SetChannel(g2nFreqHz);
     Radio.Rx(0);
 }
 
@@ -306,6 +308,8 @@ void setup(void)
     txPower       = cfg.txOutputPower;
     spreadFactor  = cfg.spreadingFactor;
     loraBW        = cfg.bandwidth;
+    n2gFreqHz     = cfg.n2gFrequencyHz;
+    g2nFreqHz     = cfg.g2nFrequencyHz;
 
     /* BME280 sensor */
     sensorInit();
@@ -317,7 +321,7 @@ void setup(void)
     radioEvents.RxError = onRxError;
 
     Radio.Init(&radioEvents);
-    Radio.SetChannel(RF_N2G_FREQUENCY);  /* Start on N2G for sensor TX */
+    Radio.SetChannel(n2gFreqHz);  /* Start on N2G for sensor TX */
 
     /* Apply TX + RX config from runtime params */
     applyTxConfig();
@@ -391,10 +395,10 @@ void loop(void)
     /* Start RX on G2N if duty cycle allows */
     if (rxWindowMs > 0) {
         DBG("Opening RX window for %lu ms on G2N (%.1f MHz)...\n",
-                      rxWindowMs, RF_G2N_FREQUENCY / 1e6);
+                      rxWindowMs, g2nFreqHz / 1e6);
         CDBG("RX_OPEN dur=%lums\n", rxWindowMs);
         Radio.Sleep();
-        Radio.SetChannel(RF_G2N_FREQUENCY);
+        Radio.SetChannel(g2nFreqHz);
         rxDone = false;
         rxLen = 0;
         Radio.Rx(0);
@@ -435,5 +439,5 @@ void loop(void)
 
     /* Ensure clean state for next cycle */
     if (radioListening) Radio.Sleep();
-    Radio.SetChannel(RF_N2G_FREQUENCY);
+    Radio.SetChannel(n2gFreqHz);
 }

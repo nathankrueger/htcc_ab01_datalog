@@ -52,40 +52,60 @@ void applyRxConfig(void)
                       0, true, 0, 0, LORA_IQ_INVERSION_ON, true);
 }
 
-/* onSet callback for txpwr: re-apply TX config */
-static void onSetTxPwr(const char *name)
+/*
+ * rcfg_radio handler: Apply staged radio config from cfg to runtime.
+ *
+ * Call this after setparam changes to radio params (bw, sf, txpwr, n2gfreq,
+ * g2nfreq). Copies cfg.* to runtime globals and reconfigures radio hardware.
+ * Uses early_ack=true so ACK is sent before radio changes take effect.
+ */
+static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
-    (void)name;
-    applyTxConfig();
-}
+    (void)cmd;
+    (void)args;
+    (void)arg_count;
 
-/* onSet callback for sf/bw: re-apply both TX and RX config */
-static void onSetRadio(const char *name)
-{
-    (void)name;
+    /* Copy config to runtime globals */
+    spreadFactor  = cfg.spreadingFactor;
+    loraBW        = cfg.bandwidth;
+    txPower       = cfg.txOutputPower;
+    n2gFreqHz     = cfg.n2gFrequencyHz;
+    g2nFreqHz     = cfg.g2nFrequencyHz;
+    rxDutyPercent = cfg.rxDutyPercent;
+
+    /* Apply to radio hardware */
     applyTxConfig();
     applyRxConfig();
+
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"applied\"}");
+    DBG("RCFG_RADIO: sf=%d bw=%d txpwr=%d n2g=%lu g2n=%lu\n",
+        spreadFactor, loraBW, txPower, n2gFreqHz, g2nFreqHz);
 }
 
 /* ─── Parameter Table ───────────────────────────────────────────────────── */
 
 /*
  * Parameter registry — MUST be in alphabetical order by name.
- * Adding a new tunable parameter is a single row addition here.
+ *
+ * STAGED RADIO CONFIG: Radio params (bw, sf, txpwr, n2gfreq, g2nfreq) now
+ * point to cfg.* fields instead of runtime globals. setparam updates cfg,
+ * but radio hardware is only reconfigured when rcfg_radio is called.
+ * This prevents ACK failures when changing radio settings.
  *
  * Fields: name, type, ptr, min, max, writable, onSet, cfgOffset
  *   cfgOffset = offsetof(NodeConfig, field) for EEPROM-persisted params
  *   cfgOffset = CFG_OFFSET_NONE (0xFF) for read-only / non-persisted params
  */
 static const uint16_t nodeVersion = NODE_VERSION;
-
 static const ParamDef paramTable[] = {
-    { "bw",      PARAM_UINT8,  &loraBW,           0,   2, true,  onSetRadio, offsetof(NodeConfig, bandwidth)        },
-    { "nodeid",  PARAM_STRING, cfg.nodeId,         0,   0, false, NULL,       CFG_OFFSET_NONE                        },
-    { "nodev",   PARAM_UINT16, (void *)&nodeVersion, 0, 0, false, NULL,       CFG_OFFSET_NONE                        },
-    { "rxduty",  PARAM_UINT8,  &rxDutyPercent,     0, 100, true,  NULL,       offsetof(NodeConfig, rxDutyPercent)     },
-    { "sf",      PARAM_UINT8,  &spreadFactor,      7,  12, true,  onSetRadio, offsetof(NodeConfig, spreadingFactor)   },
-    { "txpwr",   PARAM_INT8,   &txPower,         -17,  22, true,  onSetTxPwr, offsetof(NodeConfig, txOutputPower)     },
+    { "bw",      PARAM_UINT8,  &cfg.bandwidth,        0,   2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
+    { "g2nfreq", PARAM_UINT32, &cfg.g2nFrequencyHz,   0,   0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
+    { "n2gfreq", PARAM_UINT32, &cfg.n2gFrequencyHz,   0,   0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
+    { "nodeid",  PARAM_STRING, cfg.nodeId,            0,   0, false, NULL, CFG_OFFSET_NONE                        },
+    { "nodev",   PARAM_UINT16, (void *)&nodeVersion,  0,   0, false, NULL, CFG_OFFSET_NONE                        },
+    { "rxduty",  PARAM_UINT8,  &cfg.rxDutyPercent,    0, 100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)    },
+    { "sf",      PARAM_UINT8,  &cfg.spreadingFactor,  7,  12, true,  NULL, offsetof(NodeConfig, spreadingFactor)  },
+    { "txpwr",   PARAM_INT8,   &cfg.txOutputPower,  -17,  22, true,  NULL, offsetof(NodeConfig, txOutputPower)    },
 };
 static const int PARAM_COUNT = sizeof(paramTable) / sizeof(paramTable[0]);
 
@@ -257,9 +277,10 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getcmds",   handleGetCmds,   CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getparam",  handleGetParam,  CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_ANY, true);
     cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
-    cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, true);
+    cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
     buildCmdNameList(reg);
 }

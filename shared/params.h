@@ -36,6 +36,7 @@ typedef enum {
     PARAM_UINT8,
     PARAM_INT16,
     PARAM_UINT16,
+    PARAM_UINT32,
     PARAM_STRING
 } ParamType;
 
@@ -82,6 +83,10 @@ static inline int paramFmtKV(const ParamDef *p, char *buf, int bufSize)
         case PARAM_UINT16:
             n = snprintf(buf, bufSize, "\"%s\":%u",
                          p->name, (unsigned)*(uint16_t *)p->ptr);
+            break;
+        case PARAM_UINT32:
+            n = snprintf(buf, bufSize, "\"%s\":%lu",
+                         p->name, (unsigned long)*(uint32_t *)p->ptr);
             break;
         case PARAM_STRING:
             n = snprintf(buf, bufSize, "\"%s\":\"%s\"",
@@ -162,23 +167,30 @@ static inline int paramSet(const ParamDef *table, int count,
         return (n > 0 && n < bufSize) ? n : 0;
     }
 
-    /* Parse numeric value */
-    long val = strtol(valueStr, NULL, 10);
+    /* Parse and apply value based on type */
+    if (p->type == PARAM_UINT32) {
+        /* UINT32 uses strtoul and skips int16 range check */
+        unsigned long val = strtoul(valueStr, NULL, 10);
+        *(uint32_t *)p->ptr = (uint32_t)val;
+    } else {
+        /* Parse numeric value */
+        long val = strtol(valueStr, NULL, 10);
 
-    /* Range check */
-    if (val < p->minVal || val > p->maxVal) {
-        int n = snprintf(buf, bufSize, "{\"e\":\"range: %d..%d\"}",
-                         p->minVal, p->maxVal);
-        return (n > 0 && n < bufSize) ? n : 0;
-    }
+        /* Range check (only for types that fit in int16 range) */
+        if (val < p->minVal || val > p->maxVal) {
+            int n = snprintf(buf, bufSize, "{\"e\":\"range: %d..%d\"}",
+                             p->minVal, p->maxVal);
+            return (n > 0 && n < bufSize) ? n : 0;
+        }
 
-    /* Apply value */
-    switch (p->type) {
-        case PARAM_INT8:   *(int8_t *)p->ptr   = (int8_t)val;   break;
-        case PARAM_UINT8:  *(uint8_t *)p->ptr  = (uint8_t)val;  break;
-        case PARAM_INT16:  *(int16_t *)p->ptr  = (int16_t)val;  break;
-        case PARAM_UINT16: *(uint16_t *)p->ptr = (uint16_t)val; break;
-        default: break;
+        /* Apply value */
+        switch (p->type) {
+            case PARAM_INT8:   *(int8_t *)p->ptr   = (int8_t)val;   break;
+            case PARAM_UINT8:  *(uint8_t *)p->ptr  = (uint8_t)val;  break;
+            case PARAM_INT16:  *(int16_t *)p->ptr  = (int16_t)val;  break;
+            case PARAM_UINT16: *(uint16_t *)p->ptr = (uint16_t)val; break;
+            default: break;
+        }
     }
 
     /* Call onSet callback if present */
@@ -307,6 +319,7 @@ static inline void paramsSyncToConfig(const ParamDef *table, int count,
             case PARAM_UINT8:  *(uint8_t *)dst = *(uint8_t *)table[i].ptr;  break;
             case PARAM_INT16:  *(int16_t *)dst = *(int16_t *)table[i].ptr;  break;
             case PARAM_UINT16: *(uint16_t *)dst = *(uint16_t *)table[i].ptr; break;
+            case PARAM_UINT32: *(uint32_t *)dst = *(uint32_t *)table[i].ptr; break;
             case PARAM_STRING: /* string params are read-only, skip */       break;
         }
     }
