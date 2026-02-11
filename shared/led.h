@@ -169,41 +169,15 @@ static void ledTest(unsigned long delayMs = 5000)
         delay(delayAmt);
     }
 
+    /* Full-brightness primary test */
+    ledSetRGB(255, 0, 0);
+    delay(delayAmt);
+    ledSetRGB(0, 255, 0);
+    delay(delayAmt);
+    ledSetRGB(0, 0, 255);
+    delay(delayAmt);
+
     ledOff();
-
-    /*
-     * Raw byte diagnostic - bypasses Color() reordering.
-     * Watch the LED and note which PHYSICAL color appears for each step.
-     * This tells us the actual byte->channel mapping of the LED hardware.
-     */
-
-    /* Byte 0 only (GRB->Green, RGB->Red) */
-    _rgbLed.setPixelColor(0, (uint32_t)0xFF0000);
-    _rgbLed.show();
-    delay(delayAmt);
-
-    /* Byte 1 only (GRB->Red, RGB->Green) */
-    _rgbLed.setPixelColor(0, (uint32_t)0x00FF00);
-    _rgbLed.show();
-    delay(delayAmt);
-
-    /* Byte 2 only (always Blue for GRB/RGB) */
-    _rgbLed.setPixelColor(0, (uint32_t)0x0000FF);
-    _rgbLed.show();
-    delay(delayAmt);
-
-    /* All off */
-    _rgbLed.setPixelColor(0, (uint32_t)0x000000);
-    _rgbLed.show();
-    delay(delayAmt);
-
-    /* All max */
-    _rgbLed.setPixelColor(0, (uint32_t)0xFFFFFF);
-    _rgbLed.show();
-    delay(delayAmt);
-
-    _rgbLed.setPixelColor(0, (uint32_t)0x000000);
-    _rgbLed.show();
 }
 
 #endif /* LED_H */
