@@ -259,7 +259,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_ANY, true);
     cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
-    cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);
+    cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
     buildCmdNameList(reg);
 }
