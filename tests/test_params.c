@@ -19,6 +19,7 @@
 
 /* Simulated runtime globals */
 static NodeConfig testCfg;
+static uint16_t   testNodeVersion;
 static uint8_t    testBW;
 static uint8_t    testRxDuty;
 static uint8_t    testSF;
@@ -33,7 +34,7 @@ static void testOnSetRadio(const char *name) { (void)name; onSetCallCount++; }
 static const ParamDef testTable[] = {
     { "bw",      PARAM_UINT8,  &testBW,               0,   2, true,  testOnSetRadio,  offsetof(NodeConfig, bandwidth)        },
     { "nodeid",  PARAM_STRING, testCfg.nodeId,         0,   0, false, NULL,            CFG_OFFSET_NONE                        },
-    { "nodev",   PARAM_UINT16, &testCfg.nodeVersion,   0,   0, false, NULL,            CFG_OFFSET_NONE                        },
+    { "nodev",   PARAM_UINT16, &testNodeVersion,        0,   0, false, NULL,            CFG_OFFSET_NONE                        },
     { "rxduty",  PARAM_UINT8,  &testRxDuty,            0, 100, true,  NULL,            offsetof(NodeConfig, rxDutyPercent)     },
     { "sf",      PARAM_UINT8,  &testSF,                7,  12, true,  testOnSetRadio,  offsetof(NodeConfig, spreadingFactor)   },
     { "txpwr",   PARAM_INT8,   &testTxPwr,           -17,  22, true,  testOnSetTxPwr,  offsetof(NodeConfig, txOutputPower)     },
@@ -44,7 +45,7 @@ static void resetFixtures(void)
 {
     memset(&testCfg, 0, sizeof(testCfg));
     strncpy(testCfg.nodeId, "ab01", sizeof(testCfg.nodeId));
-    testCfg.nodeVersion = 1;
+    testNodeVersion = 1;
     testCfg.txOutputPower = 14;
     testCfg.rxDutyPercent = 90;
     testCfg.spreadingFactor = 7;
@@ -371,7 +372,7 @@ TEST(test_syncToConfig_skips_readonly)
     ASSERT_INT_EQ(7, dst.spreadingFactor);
     ASSERT_INT_EQ(0, dst.bandwidth);
 
-    /* magic, cfgVersion, and nodeId should NOT have been touched (still 0xFF) */
+    /* Read-only fields (magic, cfgVersion, nodeId) should NOT have been touched */
     ASSERT_INT_EQ(0xFF, dst.magic);
     ASSERT_INT_EQ(0xFF, dst.cfgVersion);
     ASSERT_INT_EQ(0xFF, (uint8_t)dst.nodeId[0]);

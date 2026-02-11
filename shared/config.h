@@ -62,7 +62,6 @@ static inline void cfgDefaults(NodeConfig *c)
     c->cfgVersion = CFG_VERSION;
     strncpy(c->nodeId, NODE_ID, sizeof(c->nodeId) - 1);
     c->nodeId[sizeof(c->nodeId) - 1] = '\0';
-    c->nodeVersion    = NODE_VERSION;
     c->txOutputPower  = TX_OUTPUT_POWER;
     c->rxDutyPercent  = RX_DUTY_PERCENT_DEFAULT;
     c->spreadingFactor = SPREADING_FACTOR_DEFAULT;

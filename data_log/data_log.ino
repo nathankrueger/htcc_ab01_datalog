@@ -328,7 +328,7 @@ void setup(void)
     commandsInit(&cmdRegistry);
 
     DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
-        cfg.nodeId, cfg.nodeVersion, txPower, rxDutyPercent);
+        cfg.nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent);
 }
 
 void loop(void)

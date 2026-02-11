@@ -77,10 +77,12 @@ static void onSetRadio(const char *name)
  *   cfgOffset = offsetof(NodeConfig, field) for EEPROM-persisted params
  *   cfgOffset = CFG_OFFSET_NONE (0xFF) for read-only / non-persisted params
  */
+static const uint16_t nodeVersion = NODE_VERSION;
+
 static const ParamDef paramTable[] = {
     { "bw",      PARAM_UINT8,  &loraBW,           0,   2, true,  onSetRadio, offsetof(NodeConfig, bandwidth)        },
     { "nodeid",  PARAM_STRING, cfg.nodeId,         0,   0, false, NULL,       CFG_OFFSET_NONE                        },
-    { "nodev",   PARAM_UINT16, &cfg.nodeVersion,   0,   0, false, NULL,       CFG_OFFSET_NONE                        },
+    { "nodev",   PARAM_UINT16, (void *)&nodeVersion, 0, 0, false, NULL,       CFG_OFFSET_NONE                        },
     { "rxduty",  PARAM_UINT8,  &rxDutyPercent,     0, 100, true,  NULL,       offsetof(NodeConfig, rxDutyPercent)     },
     { "sf",      PARAM_UINT8,  &spreadFactor,      7,  12, true,  onSetRadio, offsetof(NodeConfig, spreadingFactor)   },
     { "txpwr",   PARAM_INT8,   &txPower,         -17,  22, true,  onSetTxPwr, offsetof(NodeConfig, txOutputPower)     },
