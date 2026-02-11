@@ -7,7 +7,7 @@
  * Workflow:
  *   1. Compile-time #defines provide defaults (overridable via Makefile -D flags)
  *   2. cfgLoad() reads EEPROM into a NodeConfig struct
- *   3. If EEPROM is uninitialised (no magic byte), compile-time defaults are used
+ *   3. If EEPROM is uninitialised (wrong magic/version), compile-time defaults are used
  *   4. When UPDATE_CFG=1, compile-time values replace EEPROM contents
  *      (EEPROM is only written if the values actually differ — no unnecessary wear)
  *
@@ -37,33 +37,36 @@
 #define RX_DUTY_PERCENT_DEFAULT  90
 #endif
 
+#ifndef SPREADING_FACTOR_DEFAULT
+#define SPREADING_FACTOR_DEFAULT LORA_SPREADING_FACTOR  /* SF7, from radio.h */
+#endif
+
+#ifndef BANDWIDTH_DEFAULT
+#define BANDWIDTH_DEFAULT        LORA_BANDWIDTH  /* 0 = 125 kHz, from radio.h */
+#endif
+
 #ifndef UPDATE_CFG
 #define UPDATE_CFG               0
 #endif
 
-/* ─── Config Struct ───────────────────────────────────────────────────────── */
+/* ─── Config Struct (shared with unit tests via config_types.h) ───────────── */
 
-#define CFG_MAGIC 0xCF
-
-struct __attribute__((packed)) NodeConfig {
-    uint8_t  magic;              /*  1B — validity marker              */
-    char     nodeId[16];         /* 16B — null-terminated identifier   */
-    uint16_t nodeVersion;        /*  2B — firmware / config version    */
-    int8_t   txOutputPower;      /*  1B — TX power in dBm             */
-    uint8_t  rxDutyPercent;      /*  1B — RX duty cycle 0-100         */
-};                               /* 21B total                          */
+#include "config_types.h"
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
 /* Populate a NodeConfig from compile-time #defines. */
 static inline void cfgDefaults(NodeConfig *c)
 {
-    c->magic = CFG_MAGIC;
+    c->magic      = CFG_MAGIC;
+    c->cfgVersion = CFG_VERSION;
     strncpy(c->nodeId, NODE_ID, sizeof(c->nodeId) - 1);
     c->nodeId[sizeof(c->nodeId) - 1] = '\0';
     c->nodeVersion    = NODE_VERSION;
     c->txOutputPower  = TX_OUTPUT_POWER;
     c->rxDutyPercent  = RX_DUTY_PERCENT_DEFAULT;
+    c->spreadingFactor = SPREADING_FACTOR_DEFAULT;
+    c->bandwidth       = BANDWIDTH_DEFAULT;
 }
 
 /*
@@ -98,10 +101,10 @@ static inline bool cfgLoad(NodeConfig *c)
     EEPROM.begin(sizeof(NodeConfig));
     EEPROM.get(0, *c);
 
-    bool valid = (c->magic == CFG_MAGIC);
+    bool valid = (c->magic == CFG_MAGIC && c->cfgVersion == CFG_VERSION);
 
     if (!valid) {
-        /* First boot or blank EEPROM — use compile-time defaults.
+        /* First boot, blank EEPROM, or struct layout changed — use defaults.
          * Don't write to EEPROM; the user must opt in with UPDATE_CFG=1. */
         cfgDefaults(c);
     }

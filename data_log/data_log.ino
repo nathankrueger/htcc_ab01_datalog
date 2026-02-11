@@ -1,10 +1,11 @@
 #include "Arduino.h"
 #include "LoRaWan_APP.h"
 #include "hw.h"
-#include <Adafruit_BME280.h>
 #include "packets.h"
 #include "radio.h"
 #include "config.h"
+#include "commands.h"
+#include "sensors.h"
 #include "led.h"
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
@@ -48,7 +49,7 @@
  *   - Higher = more reliable command reception, more power consumption
  *   - Lower  = less power, commands may require more gateway retries
  *   - 0      = TX-only mode, never listen for commands
- *   - Can be changed at runtime via "rxduty" command
+ *   - Can be changed at runtime via "setparam rxduty" command
  *
  * Derived at runtime:
  *   rxWindowMs = (CYCLE_PERIOD_MS - TX_TIME_MS) * rxDutyPercent / 100
@@ -69,34 +70,21 @@
 #define BROADCAST_ACK_JITTER_MS  500
 #endif
 
-/*
- * Sensor-class IDs are assigned by alphabetical sort of the Python class names
- * at import time in sensors/__init__.py.  Current registry:
- *   0 = BME280TempPressureHumidity
- *   1 = MMA8452Accelerometer
- * If you add a new sensor class on the Python side, re-derive these.
- */
-#define SENSOR_ID_BME280         0
-
 /* CRC-32, Reading, buildSensorPacket, CommandPacket, parseCommand,
  * buildAckPacket are all in packets.h */
 
 /* ─── Globals ────────────────────────────────────────────────────────────── */
 
 static RadioEvents_t radioEvents;
-static Adafruit_BME280 bme;
-static bool bmeOk = false;
-static NodeConfig cfg;
 
-/* RX duty cycle - adjustable at runtime via "rxduty" command */
-static int rxDutyPercent;
-
-/* TX power - adjustable at runtime via "txpwr" command */
-static int8_t txPower;
-
-/* Non-blocking blink state */
-static bool          blinkActive  = false;
-static unsigned long blinkOffTime = 0;
+/* Globals shared with commands.cpp (declared extern in commands.h) */
+NodeConfig    cfg;
+uint8_t       rxDutyPercent;
+int8_t        txPower;
+uint8_t       spreadFactor;   /* SF7-SF12 */
+uint8_t       loraBW;         /* 0=125kHz, 1=250kHz, 2=500kHz */
+bool          blinkActive  = false;
+unsigned long blinkOffTime = 0;
 
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
@@ -108,7 +96,7 @@ static int  lastAckLen = 0;
 /* Calculate RX window duration based on current duty cycle */
 static inline unsigned long getRxWindowMs(void)
 {
-    if (rxDutyPercent <= 0) return 0;
+    if (rxDutyPercent == 0) return 0;
     if (rxDutyPercent > 100) return CYCLE_PERIOD_MS - TX_TIME_MS;
     return ((unsigned long)(CYCLE_PERIOD_MS - TX_TIME_MS) * rxDutyPercent) / 100;
 }
@@ -121,167 +109,6 @@ static volatile bool txDone = false;
 
 /* Command registry */
 static CommandRegistry cmdRegistry;
-
-static float c_to_f(float c) { return c * 9.0f / 5.0f + 32.0f; }
-
-/* ─── Command Handlers ───────────────────────────────────────────────────── */
-
-static void handlePing(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    DBGLN("PING received");
-}
-
-static void handleBlink(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    /* Require at least the color argument */
-    if (arg_count < 1) {
-        DBGLN("BLINK: missing color argument");
-        return;
-    }
-
-    /* Parse color */
-    LEDColor color = parseColor(args[0]);
-    DBG("BLINK: color=%s", args[0]);
-
-    /* Parse optional seconds argument (default 0.5s) */
-    float seconds = 0.5f;
-    if (arg_count >= 2) {
-        seconds = strtof(args[1], NULL);
-        if (seconds <= 0.0f) {
-            DBGLN(" ERROR: invalid seconds value");
-            return;
-        }
-    }
-    /* Parse optional brightness argument (default LED_BRIGHTNESS) */
-    uint8_t brightness = LED_BRIGHTNESS;
-    if (arg_count >= 3) {
-        int val = atoi(args[2]);
-        if (val < 0 || val > 255) {
-            DBGLN(" ERROR: brightness must be 0-255");
-            return;
-        }
-        brightness = (uint8_t)val;
-    }
-    DBG(" seconds=%.2f brightness=%d\n", seconds, brightness);
-
-    /* Turn on LED — tick loop will turn it off after the timer expires */
-    ledSetColorBrightness(color, brightness);
-    blinkActive = true;
-    blinkOffTime = millis() + (unsigned long)(seconds * 1000.0f);
-}
-
-static void handleRxDuty(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    if (arg_count < 1) {
-        DBG("RXDUTY: current=%d%% (window=%lums)\n",
-                      rxDutyPercent, getRxWindowMs());
-        return;
-    }
-
-    int newDuty = atoi(args[0]);
-    if (newDuty < 0 || newDuty > 100) {
-        DBG("RXDUTY: ERROR value %d out of range (0-100)\n", newDuty);
-        return;
-    }
-
-    int oldDuty = rxDutyPercent;
-    rxDutyPercent = newDuty;
-    DBG("RXDUTY: %d%% -> %d%% (window=%lums)\n",
-                  oldDuty, rxDutyPercent, getRxWindowMs());
-}
-
-/* Helper to apply TX config with current txPower */
-static void applyTxConfig(void)
-{
-    Radio.SetTxConfig(MODEM_LORA, txPower, 0, LORA_BANDWIDTH,
-                      LORA_SPREADING_FACTOR, LORA_CODINGRATE,
-                      LORA_PREAMBLE_LENGTH, LORA_FIX_LENGTH_PAYLOAD_ON,
-                      true, 0, 0, LORA_IQ_INVERSION_ON, 3000);
-}
-
-static void handleTxPwr(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    if (arg_count < 1) {
-        DBG("TXPWR: current=%d dBm\n", txPower);
-        return;
-    }
-
-    int newPower = atoi(args[0]);
-    if (newPower < -17 || newPower > 22) {
-        DBG("TXPWR: ERROR value %d out of range (-17 to 22)\n", newPower);
-        return;
-    }
-
-    int8_t oldPower = txPower;
-    txPower = (int8_t)newPower;
-    applyTxConfig();
-    DBG("TXPWR: %d dBm -> %d dBm\n", oldPower, txPower);
-}
-
-static void handleParams(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    /*
-     * Write current params to response buffer - gateway receives in ACK payload.
-     * IMPORTANT: Keys must be in alphabetical order for CRC to match Python's
-     * json.dumps(sort_keys=True). Order: rxduty < txpwr
-     */
-    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
-             "{\"rxduty\":%d,\"txpwr\":%d}",
-             rxDutyPercent, txPower);
-    DBG("PARAMS: responding with %s\n", cmdResponseBuf);
-}
-
-static void handleReset(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    /* Optional delay in seconds (default 0 = immediate) */
-    float seconds = 0.0f;
-    if (arg_count >= 1) {
-        seconds = strtof(args[0], NULL);
-        if (seconds < 0.0f) seconds = 0.0f;
-    }
-
-    DBG("RESET: rebooting in %.1f s...\n", seconds);
-    if (seconds > 0.0f)
-        delay((unsigned long)(seconds * 1000.0f));
-    delay(100);  /* let debug output flush */
-    NVIC_SystemReset();
-}
-
-static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    if (arg_count < 1 || args[0][0] == '\0') {
-        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"\"}");
-        return;
-    }
-    /* Return the argument as a JSON object in the response buffer */
-    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"%s\"}", args[0]);
-    DBG("ECHO: responding with %s\n", cmdResponseBuf);
-}
-
-static void handleTestLed(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    unsigned long delayMs = 5000;
-    if (arg_count >= 1) {
-        long val = atol(args[0]);
-        if (val > 0) delayMs = (unsigned long)val;
-    }
-    DBG("TESTLED: cycling colors, %lums per step\n", delayMs);
-    ledTest(delayMs);
-}
-
-static void handleSaveCfg(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
-{
-    /* Snapshot current runtime values into the config struct */
-    cfg.txOutputPower = txPower;
-    cfg.rxDutyPercent = (uint8_t)rxDutyPercent;
-
-    bool written = cfgSave(&cfg);
-    const char *msg = written ? "saved" : "unchanged";
-    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
-             "{\"cfg\":\"%s\",\"n\":\"%s\",\"v\":%u,\"tx\":%d,\"rx\":%d}",
-             msg, cfg.nodeId, cfg.nodeVersion, cfg.txOutputPower, cfg.rxDutyPercent);
-    DBG("SAVECFG: %s\n", cmdResponseBuf);
-}
 
 /* ─── Radio Callbacks ────────────────────────────────────────────────────── */
 
@@ -477,11 +304,11 @@ void setup(void)
     cfgLoad(&cfg);
     rxDutyPercent = cfg.rxDutyPercent;
     txPower       = cfg.txOutputPower;
+    spreadFactor  = cfg.spreadingFactor;
+    loraBW        = cfg.bandwidth;
 
-    /* BME280 — try both common I2C addresses */
-    bmeOk = bme.begin(0x76);
-    if (!bmeOk) bmeOk = bme.begin(0x77);
-    if (!bmeOk) DBGLN("ERROR: BME280 not found on 0x76 or 0x77");
+    /* BME280 sensor */
+    sensorInit();
 
     /* LoRa — register callbacks */
     radioEvents.TxDone = onTxDone;
@@ -492,113 +319,50 @@ void setup(void)
     Radio.Init(&radioEvents);
     Radio.SetChannel(RF_N2G_FREQUENCY);  /* Start on N2G for sensor TX */
 
-    /* TX config */
+    /* Apply TX + RX config from runtime params */
     applyTxConfig();
-
-    /* RX config - CRC enabled to match gateway */
-    Radio.SetRxConfig(MODEM_LORA, LORA_BANDWIDTH, LORA_SPREADING_FACTOR,
-                      LORA_CODINGRATE, 0, LORA_PREAMBLE_LENGTH,
-                      LORA_SYMBOL_TIMEOUT, LORA_FIX_LENGTH_PAYLOAD_ON,
-                      0, true, 0, 0, LORA_IQ_INVERSION_ON, true);
+    applyRxConfig();
 
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, cfg.nodeId);
-    cmdRegister(&cmdRegistry, "ping",   handlePing,   CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "discover", handlePing, CMD_SCOPE_BROADCAST, true, true);
-    cmdRegister(&cmdRegistry, "blink",  handleBlink,  CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "rxduty", handleRxDuty, CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "txpwr",  handleTxPwr,  CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "params", handleParams, CMD_SCOPE_ANY, false);  /* returns data */
-    cmdRegister(&cmdRegistry, "echo",   handleEcho,   CMD_SCOPE_ANY, false);  /* returns data */
-    cmdRegister(&cmdRegistry, "reset",  handleReset,  CMD_SCOPE_ANY, true);
-    cmdRegister(&cmdRegistry, "savecfg", handleSaveCfg, CMD_SCOPE_PRIVATE, false); /* returns data */
-    cmdRegister(&cmdRegistry, "testled", handleTestLed, CMD_SCOPE_ANY, true);
+    commandsInit(&cmdRegistry);
 
     DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
-        cfg.nodeId, cfg.nodeVersion, cfg.txOutputPower, cfg.rxDutyPercent);
+        cfg.nodeId, cfg.nodeVersion, txPower, rxDutyPercent);
 }
 
 void loop(void)
 {
     unsigned long cycleStart = millis();
 
-    if (!bmeOk) {
+    /* ── Sample sensor ── */
+    if (!sensorAvailable()) {
         DBGLN("BME280 not available — retrying...");
-        bmeOk = bme.begin(0x76);
-        if (!bmeOk) bmeOk = bme.begin(0x77);
+        sensorInit();
         delay(CYCLE_PERIOD_MS);
         return;
     }
 
-    /* ── Read sensor ── */
-    float tempF   = c_to_f(bme.readTemperature());   /* °C → °F */
-    float pressure = bme.readPressure() / 100.0f;    /* Pa  → hPa */
-    float humidity = bme.readHumidity();
-
-    /* Guard against NaN / Inf from a bad read — %g would produce non-JSON */
-    if (isnan(tempF) || isinf(tempF) ||
-        isnan(pressure) || isinf(pressure) ||
-        isnan(humidity) || isinf(humidity)) {
-        DBGLN("ERROR: BME280 returned NaN/Inf, skipping");
+    Reading readings[SENSOR_MAX_READINGS];
+    int nRead = sensorRead(readings, SENSOR_MAX_READINGS);
+    if (nRead <= 0) {
+        DBGLN("ERROR: sensor read failed, skipping cycle");
         delay(CYCLE_PERIOD_MS);
         return;
     }
 
-    /* Round to match BME280 output precision */
-    tempF     = roundf(tempF     * 10.0f)  / 10.0f;   /* 1 dp */
-    pressure  = roundf(pressure  * 100.0f) / 100.0f;  /* 2 dp */
-    humidity  = roundf(humidity  * 10.0f)  / 10.0f;   /* 1 dp */
-
-    DBG("T=%.1f F  P=%.2f hPa  H=%.1f %%\n",
-                  tempF, pressure, humidity);
-
-    /*
-     * Reading descriptors.
-     *
-     * Units must use JSON \uXXXX escapes for any non-ASCII characters so the
-     * CRC matches Python's json.dumps(..., ensure_ascii=True).
-     * The degree sign ° (U+00B0) becomes \u00b0 in the JSON wire bytes.
-     * In this C string literal the backslash is escaped once: "\\u00b0F".
-     */
-    Reading readings[] = {
-        { "Temperature", SENSOR_ID_BME280, "\\u00b0F", tempF    },
-        { "Pressure",    SENSOR_ID_BME280, "hPa",      pressure },
-        { "Humidity",    SENSOR_ID_BME280, "%",        humidity  },
-    };
-    const int NUM_READINGS = 3;
-
-    /*
-     * Send with automatic packet splitting.
-     *
-     * All three BME280 readings fit comfortably in one packet (~173 bytes for
-     * a short NODE_ID), but the loop handles the general case: it greedily
-     * packs as many readings as possible into each packet while staying at or
-     * below LORA_MAX_PAYLOAD.
-     *
-     * TODO: replace the timestamp (currently 0) with a real Unix epoch.
-     *       The gateway passes it through to the dashboard unchanged, so 0
-     *       will show up as 1970-01-01.  Add NTP sync or an RTC module to fix.
-     */
+    /* ── Build and send sensor packets ── */
     char pkt[LORA_MAX_PAYLOAD + 1];
-    int  start = 0;
+    int offset = 0;
 
-    while (start < NUM_READINGS) {
-        int end  = NUM_READINGS;
-        int pLen = 0;
-
-        /* shrink the window until the packet fits */
-        while (end > start) {
-            pLen = buildSensorPacket(pkt, sizeof(pkt),
-                                     cfg.nodeId, 0u,
-                                     &readings[start], end - start);
-            if (pLen > 0 && pLen <= LORA_MAX_PAYLOAD) break;
-            end--;
-        }
-
-        if (end == start) {
+    while (offset < nRead) {
+        int nextOffset;
+        int pLen = sensorPack(cfg.nodeId, readings, nRead,
+                              offset, &nextOffset, pkt, sizeof(pkt));
+        if (pLen == 0) {
             DBG("ERROR: reading \"%s\" alone exceeds max payload\n",
-                          readings[start].name);
-            start++;
+                readings[offset].name);
+            offset = nextOffset;
             continue;
         }
 
@@ -606,17 +370,16 @@ void loop(void)
         txDone = false;
         Radio.Send((uint8_t *)pkt, pLen);
         DBG("Sent %d/%d readings [%d bytes]\n",
-                      end - start, NUM_READINGS, pLen);
+            nextOffset - offset, nRead, pLen);
 
-        /* Wait for TX to complete (with timeout) */
         unsigned long txStart = millis();
         while (!txDone && (millis() - txStart) < 3000) {
             Radio.IrqProcess();
             delay(1);
         }
 
-        start = end;
-        if (start < NUM_READINGS)
+        offset = nextOffset;
+        if (offset < nRead)
             delay(100);   /* brief gap between split packets */
     }
 

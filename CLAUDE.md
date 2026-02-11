@@ -34,7 +34,12 @@ make upload USBIPD_BUSID=2-3         # WSL USB bus ID
 make VERBOSE=1                        # Detailed compilation output
 ```
 
-There are no tests. The build system uses `arduino-cli` (not PlatformIO).
+Run native C unit tests (no Arduino dependencies):
+```sh
+make test                         # Build and run tests (output in build/tests/)
+```
+
+The build system uses `arduino-cli` (not PlatformIO).
 
 ## Platform Support
 
@@ -42,7 +47,13 @@ The Makefile and install.sh must work on both **WSL Ubuntu** and **macOS**. The 
 
 ## Companion Repository
 
-The gateway/dashboard project (`data_log`) is typically located at `../data_log` relative to this repo. The gateway server is at `../data_log/gateway_server.py`. Protocol changes (packet format, CRC, sensor class IDs) often require coordinated changes across both repos. If `../data_log` doesn't exist, ask the user where their `data_log` repo is located.
+The companion `data_log` repo is typically at `../data_log` relative to this repo. If `../data_log` doesn't exist, ask the user where their `data_log` repo is located.
+
+Key files in the companion repo:
+- **`gateway/server.py`** — Gateway server on the Raspberry Pi. Receives LoRa packets from nodes, verifies CRC, forwards to the dashboard over TCP. Protocol changes (packet format, CRC, JSON key ordering, sensor class IDs) require coordinated changes here.
+- **`node/data_log.py`** — Python equivalent of `data_log/data_log.ino`. Runs on a Raspberry Pi node as a software alternative to the CubeCell hardware node. New features or enhancements added to `data_log.ino` should also be implemented in `data_log.py` to keep both node implementations in sync.
+
+When making significant changes to this repo (new commands, protocol changes, new sensor types, param registry changes), check whether the companion repo needs matching updates.
 
 ## Architecture
 
@@ -52,7 +63,7 @@ CubeCell Node (this sketch)
   │  LoRa G2N 915.5 MHz ◄── Commands
   ▼
 Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
-  ../data_log/gateway_server.py
+  ../data_log/gateway/server.py
 ```
 
 **Dual-channel LoRa:** N2G (node-to-gateway, 915 MHz) carries sensor packets and ACKs. G2N (gateway-to-node, 915.5 MHz) carries command packets. This avoids TX/RX collision on a single frequency.
@@ -66,9 +77,13 @@ Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
 
 ## Key Files
 
-- **data_log/data_log.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers (`ping`, `blink`, `rxduty`), LED control, BME280 reading
+- **data_log/data_log.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers, param table, LED control, BME280 reading
 - **range_test/range_test.ino** — Range test sketch: listens for gateway pings on G2N, displays RSSI on SSD1306 OLED, reads GPS from NEO-6M, sends GPS sensor packet on N2G
-- **shared/packets.h** — All protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting. Shared by both sketches via `-I shared/` include path.
+- **shared/packets.h** — Protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting
+- **shared/params.h** — Generic parameter registry: `ParamDef` table, `paramGet`/`paramSet`/`paramsList`/`cmdsList`/`paramsSyncToConfig`. All `static inline`, testable without Arduino
+- **shared/config_types.h** — `NodeConfig` struct and EEPROM versioning constants (`CFG_MAGIC`, `CFG_VERSION`). Separated from config.h so unit tests can include it without `<EEPROM.h>`
+- **shared/config.h** — EEPROM persistence: `cfgLoad`/`cfgSave`/`cfgDefaults`. Requires Arduino `<EEPROM.h>`
+- **tests/** — Native C unit tests compiled with `gcc -std=c11`. Run via `make test`
 - **Makefile** — Build system with platform detection (macOS/Linux/WSL), `arduino-cli` invocation, compiler defines, USB passthrough, multi-sketch support (`SKETCH` variable)
 - **install.sh** — Bootstrap script for arduino-cli, CubeCell board core, and libraries (BME280, TinyGPSPlus)
 
@@ -84,6 +99,25 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 - **CubeCell `snprintf %g`:** Doesn't strip trailing zeros. Custom `fmtVal()` in packets.h handles this so CRC stays stable between node and gateway.
 - **Sensor class IDs** (the `"s"` field) are derived from alphabetical sort of Python class names in the companion `data_log` project's `sensors/__init__.py`.
 
+## EEPROM Config Versioning
+
+`NodeConfig` is persisted to EEPROM with a two-field validity check in `config_types.h`:
+
+- **`CFG_MAGIC`** (0xCF) — Fixed sentinel. Detects blank/uninitialized EEPROM. **Never changes.**
+- **`CFG_VERSION`** (currently 1) — Struct layout version. **Bump this whenever you add, remove, or reorder fields in `NodeConfig`.**
+
+`cfgLoad()` checks both: if either doesn't match, the EEPROM data is treated as invalid and compile-time defaults are loaded. This means deploying firmware with a new `CFG_VERSION` automatically resets all nodes to defaults — any previously saved txpwr/rxduty/sf/bw customizations will be lost. That's intentional: the old EEPROM bytes no longer map to the right fields.
+
+**When to bump `CFG_VERSION`:**
+- Adding a new field to `NodeConfig` (e.g., a new tunable parameter)
+- Removing or reordering existing fields
+- Changing a field's type or size
+
+**When NOT to bump:**
+- Adding a new command handler (no struct change)
+- Changing default values in `config.h` (struct layout unchanged)
+- Changes to `params.h` or `packets.h` that don't touch `NodeConfig`
+
 ## Configuration Defines
 
 All configurable via Makefile variables (which become `-D` compiler flags) or `#define` in the sketch:
@@ -92,6 +126,14 @@ All configurable via Makefile variables (which become `-D` compiler flags) or `#
 - `LED_BRIGHTNESS` (0-255, default 64) — NeoPixel brightness
 - `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros
 - `RX_DUTY_PERCENT_DEFAULT` (0-100, default 90) — fraction of cycle spent listening for commands (datalog only)
+
+## Parameter Registry
+
+Runtime-tunable parameters are defined as a `ParamDef` table in `data_log.ino`. Adding a new parameter is a single row addition — no new command handlers needed.
+
+Commands: `getparam <name>`, `setparam <name> <value>`, `getparams [offset]`, `getcmds [offset]`. `setparam` changes runtime only; `savecfg` persists to EEPROM via `paramsSyncToConfig()`.
+
+The param table **must** be in alphabetical order by name (JSON key ordering for CRC matching). List responses use self-terminating pagination with a `"m"` (more) flag for the 171-byte ACK payload limit.
 
 ## Range Test Tool
 

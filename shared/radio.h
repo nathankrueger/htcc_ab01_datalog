@@ -33,8 +33,8 @@
  * These settings define the LoRa physical layer parameters.
  * All nodes and gateways must use identical settings.
  */
-#define LORA_BANDWIDTH           0          /* 0 = 125 kHz */
-#define LORA_SPREADING_FACTOR    7          /* SF7 - fast, shorter range */
+#define LORA_BANDWIDTH           0          /* 0=125kHz, 1=250kHz, 2=500kHz */
+#define LORA_SPREADING_FACTOR    7          /* SF7-SF12 (7=fast, 12=long range) */
 #define LORA_CODINGRATE          1          /* 4/5 */
 #define LORA_PREAMBLE_LENGTH     8
 #define LORA_SYMBOL_TIMEOUT      0

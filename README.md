@@ -40,14 +40,20 @@ make monitor
 
 ## Configuration
 
-Edit the `#define` block at the top of `data_log.ino`:
+### Compile-time defaults
 
-| Define             | Default | Description                          |
-|--------------------|---------|--------------------------------------|
-| `NODE_ID`          | `ab01`  | Unique node name in the sensor network |
-| `SEND_INTERVAL_MS` | `5000`  | Milliseconds between sensor reads    |
-| `RF_FREQUENCY`     | 915 MHz | Must match gateway radio config      |
-| `TX_OUTPUT_POWER`  | 14 dBm  | Transmit power                       |
+Overridable via Makefile variables (which become `-D` compiler flags):
+
+| Define                    | Default | Description                              |
+|---------------------------|---------|------------------------------------------|
+| `NODE_ID`                 | `ab01`  | Unique node name in the sensor network   |
+| `CYCLE_PERIOD_MS`         | `5000`  | Milliseconds per TX/RX cycle             |
+| `TX_OUTPUT_POWER`         | 14 dBm  | Transmit power (-17 to 22)               |
+| `RX_DUTY_PERCENT_DEFAULT` | `90`    | % of cycle spent listening for commands  |
+| `SPREADING_FACTOR_DEFAULT`| `7`     | LoRa spreading factor (SF7-SF12)         |
+| `BANDWIDTH_DEFAULT`       | `0`     | LoRa bandwidth (0=125kHz, 1=250kHz, 2=500kHz) |
+| `LED_BRIGHTNESS`          | `16`    | NeoPixel brightness (0-255)              |
+| `DEBUG`                   | `1`     | Enable serial debug output               |
 
 LoRaWAN region can be set at build time (does not affect this sketch's
 plain LoRa usage, but the CubeCell SDK requires it):
@@ -55,6 +61,33 @@ plain LoRa usage, but the CubeCell SDK requires it):
 ```sh
 make upload LORAWAN_REGION=6   # EU868
 ```
+
+### Runtime parameters
+
+Several parameters can be changed at runtime via LoRa commands without
+recompiling. Use `setparam <name> <value>` to change, `savecfg` to
+persist to EEPROM:
+
+| Param    | Type   | Range    | Description                              |
+|----------|--------|----------|------------------------------------------|
+| `txpwr`  | int8   | -17..22  | TX power in dBm                          |
+| `rxduty` | uint8  | 0..100   | RX duty cycle percentage                 |
+| `sf`     | uint8  | 7..12    | Spreading factor                         |
+| `bw`     | uint8  | 0..2     | Bandwidth (0=125kHz, 1=250kHz, 2=500kHz) |
+| `nodeid` | string | —        | Node ID (read-only)                      |
+| `nodev`  | uint16 | —        | Node version (read-only)                 |
+
+### EEPROM config versioning
+
+`NodeConfig` is stored in EEPROM with a two-field validity check:
+
+- **`CFG_MAGIC`** (0xCF) — Fixed sentinel that detects blank EEPROM. Never changes.
+- **`CFG_VERSION`** (currently 1) — Struct layout version. **Bump whenever
+  fields are added/removed/reordered in `NodeConfig`** (in `shared/config_types.h`).
+
+When the firmware boots and either field doesn't match, compile-time
+defaults are loaded automatically. This means adding a new EEPROM-backed
+parameter resets all nodes to defaults on first boot with the new firmware.
 
 ## WSL USB Passthrough (Windows)
 

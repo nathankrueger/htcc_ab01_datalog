@@ -100,7 +100,7 @@ DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS) $(INCLUDE_FL
 
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION),LORAWAN_RGB=0
 
-.PHONY: all compile upload monitor clean clean-all
+.PHONY: all compile upload monitor clean clean-all test
 
 all: compile
 
@@ -161,3 +161,7 @@ clean:
 
 clean-all:
 	rm -rf build
+	$(MAKE) -C tests clean
+
+test:
+	$(MAKE) -C tests

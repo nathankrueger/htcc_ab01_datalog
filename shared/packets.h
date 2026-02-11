@@ -505,7 +505,11 @@ static inline void cmdRegistryInit(CommandRegistry *reg, const char *nodeId)
  */
 static inline bool cmdRegister(CommandRegistry *reg, const char *cmd,
                                CommandCallback callback, CommandScope scope,
+#ifdef __cplusplus
                                bool earlyAck, bool ackJitter = false)
+#else
+                               bool earlyAck, bool ackJitter)
+#endif
 {
     if (reg->count >= CMD_REGISTRY_MAX) return false;
 
@@ -544,8 +548,6 @@ static inline bool cmdRegister(CommandRegistry *reg, const char *cmd,
  */
 #define ACK_PAYLOAD_OVERHEAD (4 + 6 + 8 + 8 + 15 + 6 + NODE_ID_MAX_LEN + 5 + 11)
 #define CMD_RESPONSE_BUF_SIZE (LORA_MAX_PAYLOAD - ACK_PAYLOAD_OVERHEAD)
-
-static char cmdResponseBuf[CMD_RESPONSE_BUF_SIZE];
 
 /*
  * Look up a command handler by name and scope.
