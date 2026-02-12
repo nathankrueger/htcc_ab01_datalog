@@ -100,7 +100,7 @@ DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS) $(INCLUDE_FL
 
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(LORAWAN_REGION),LORAWAN_RGB=0
 
-.PHONY: all compile upload monitor clean clean-all test
+.PHONY: all compile upload monitor ensure-usb clean clean-all test
 
 all: compile
 
@@ -112,7 +112,7 @@ compile:
 		$(DEFINE_FLAGS) \
 		"$(SKETCH_PATH)/$(SKETCH).ino"
 
-upload: compile
+ensure-usb:
 ifeq ($(UNAME_S),Darwin)
 	@# macOS: USB devices work directly — just check if port exists
 	@if [ ! -c "$(PORT)" ]; then \
@@ -144,6 +144,8 @@ else
 	  fi; \
 	fi
 endif
+
+upload: compile ensure-usb
 	arduino-cli upload \
 		--fqbn "$(FQBN_FULL)" \
 		--port "$(PORT)" \
@@ -151,7 +153,7 @@ endif
 		$(VERBOSE_FLAG) \
 		"$(SKETCH_PATH)/$(SKETCH).ino"
 
-monitor:
+monitor: ensure-usb
 	arduino-cli monitor \
 		--port "$(PORT)" \
 		--config baudrate=115200
