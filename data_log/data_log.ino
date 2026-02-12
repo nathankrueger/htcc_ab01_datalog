@@ -108,6 +108,7 @@ static uint8_t rxBuffer[LORA_MAX_PAYLOAD + 1];
 static volatile int rxLen = 0;
 static volatile bool rxDone = false;
 static volatile bool txDone = false;
+int16_t lastRxRssi = 0;  /* RSSI of last received packet (shared with commands.cpp) */
 
 /* Command registry */
 static CommandRegistry cmdRegistry;
@@ -128,6 +129,7 @@ static void onRxDone(uint8_t *payload, uint16_t size, int16_t rssi, int8_t snr)
         memcpy(rxBuffer, payload, size);
         rxLen = size;
         rxDone = true;
+        lastRxRssi = rssi;
 
         /* Try to print as string */
         DBG("RX: Payload: %.*s\n", size, payload);
