@@ -66,28 +66,37 @@ typedef struct {
  */
 static inline int paramFmtKV(const ParamDef *p, char *buf, int bufSize)
 {
+    /*
+     * Use memcpy to read values via void* — avoids unaligned-access HardFault
+     * on Cortex-M0+ when ptr points into a packed struct (e.g. NodeConfig).
+     */
     int n = 0;
     switch (p->type) {
-        case PARAM_INT8:
-            n = snprintf(buf, bufSize, "\"%s\":%d",
-                         p->name, (int)*(int8_t *)p->ptr);
+        case PARAM_INT8: {
+            int8_t v; memcpy(&v, p->ptr, sizeof(v));
+            n = snprintf(buf, bufSize, "\"%s\":%d", p->name, (int)v);
             break;
-        case PARAM_UINT8:
-            n = snprintf(buf, bufSize, "\"%s\":%u",
-                         p->name, (unsigned)*(uint8_t *)p->ptr);
+        }
+        case PARAM_UINT8: {
+            uint8_t v; memcpy(&v, p->ptr, sizeof(v));
+            n = snprintf(buf, bufSize, "\"%s\":%u", p->name, (unsigned)v);
             break;
-        case PARAM_INT16:
-            n = snprintf(buf, bufSize, "\"%s\":%d",
-                         p->name, (int)*(int16_t *)p->ptr);
+        }
+        case PARAM_INT16: {
+            int16_t v; memcpy(&v, p->ptr, sizeof(v));
+            n = snprintf(buf, bufSize, "\"%s\":%d", p->name, (int)v);
             break;
-        case PARAM_UINT16:
-            n = snprintf(buf, bufSize, "\"%s\":%u",
-                         p->name, (unsigned)*(uint16_t *)p->ptr);
+        }
+        case PARAM_UINT16: {
+            uint16_t v; memcpy(&v, p->ptr, sizeof(v));
+            n = snprintf(buf, bufSize, "\"%s\":%u", p->name, (unsigned)v);
             break;
-        case PARAM_UINT32:
-            n = snprintf(buf, bufSize, "\"%s\":%lu",
-                         p->name, (unsigned long)*(uint32_t *)p->ptr);
+        }
+        case PARAM_UINT32: {
+            uint32_t v; memcpy(&v, p->ptr, sizeof(v));
+            n = snprintf(buf, bufSize, "\"%s\":%lu", p->name, (unsigned long)v);
             break;
+        }
         case PARAM_STRING:
             n = snprintf(buf, bufSize, "\"%s\":\"%s\"",
                          p->name, (const char *)p->ptr);
@@ -167,11 +176,11 @@ static inline int paramSet(const ParamDef *table, int count,
         return (n > 0 && n < bufSize) ? n : 0;
     }
 
-    /* Parse and apply value based on type */
+    /* Parse and apply value based on type — use memcpy for alignment safety */
     if (p->type == PARAM_UINT32) {
         /* UINT32 uses strtoul and skips int16 range check */
-        unsigned long val = strtoul(valueStr, NULL, 10);
-        *(uint32_t *)p->ptr = (uint32_t)val;
+        uint32_t v32 = (uint32_t)strtoul(valueStr, NULL, 10);
+        memcpy(p->ptr, &v32, sizeof(v32));
     } else {
         /* Parse numeric value */
         long val = strtol(valueStr, NULL, 10);
@@ -185,10 +194,10 @@ static inline int paramSet(const ParamDef *table, int count,
 
         /* Apply value */
         switch (p->type) {
-            case PARAM_INT8:   *(int8_t *)p->ptr   = (int8_t)val;   break;
-            case PARAM_UINT8:  *(uint8_t *)p->ptr  = (uint8_t)val;  break;
-            case PARAM_INT16:  *(int16_t *)p->ptr  = (int16_t)val;  break;
-            case PARAM_UINT16: *(uint16_t *)p->ptr = (uint16_t)val; break;
+            case PARAM_INT8:   { int8_t v   = (int8_t)val;   memcpy(p->ptr, &v, sizeof(v)); break; }
+            case PARAM_UINT8:  { uint8_t v  = (uint8_t)val;  memcpy(p->ptr, &v, sizeof(v)); break; }
+            case PARAM_INT16:  { int16_t v  = (int16_t)val;  memcpy(p->ptr, &v, sizeof(v)); break; }
+            case PARAM_UINT16: { uint16_t v = (uint16_t)val; memcpy(p->ptr, &v, sizeof(v)); break; }
             default: break;
         }
     }
@@ -314,13 +323,14 @@ static inline void paramsSyncToConfig(const ParamDef *table, int count,
 
         uint8_t *dst = (uint8_t *)cfg + table[i].cfgOffset;
 
+        /* memcpy both sides for alignment safety (packed struct offsets) */
         switch (table[i].type) {
-            case PARAM_INT8:   *(int8_t *)dst  = *(int8_t *)table[i].ptr;   break;
-            case PARAM_UINT8:  *(uint8_t *)dst = *(uint8_t *)table[i].ptr;  break;
-            case PARAM_INT16:  *(int16_t *)dst = *(int16_t *)table[i].ptr;  break;
-            case PARAM_UINT16: *(uint16_t *)dst = *(uint16_t *)table[i].ptr; break;
-            case PARAM_UINT32: *(uint32_t *)dst = *(uint32_t *)table[i].ptr; break;
-            case PARAM_STRING: /* string params are read-only, skip */       break;
+            case PARAM_INT8:   memcpy(dst, table[i].ptr, sizeof(int8_t));   break;
+            case PARAM_UINT8:  memcpy(dst, table[i].ptr, sizeof(uint8_t));  break;
+            case PARAM_INT16:  memcpy(dst, table[i].ptr, sizeof(int16_t));  break;
+            case PARAM_UINT16: memcpy(dst, table[i].ptr, sizeof(uint16_t)); break;
+            case PARAM_UINT32: memcpy(dst, table[i].ptr, sizeof(uint32_t)); break;
+            case PARAM_STRING: /* string params are read-only, skip */      break;
         }
     }
 }
