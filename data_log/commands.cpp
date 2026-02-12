@@ -77,6 +77,9 @@ static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int a
     applyTxConfig();
     applyRxConfig();
 
+    /* Visual confirmation: 5x rapid red blink */
+    ledBlink(LED_RED, 5, 50);
+
     snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":\"applied\"}");
     DBG("RCFG_RADIO: sf=%d bw=%d txpwr=%d n2g=%lu g2n=%lu\n",
         spreadFactor, loraBW, txPower, n2gFreqHz, g2nFreqHz);

@@ -153,6 +153,21 @@ static LEDColor parseColor(const char *colorStr)
 }
 
 /**
+ * Rapid blink: flash a color N times with the given on/off period.
+ * Blocking — total time ≈ count * 2 * periodMs.
+ */
+static void ledBlink(LEDColor color, int count, unsigned long periodMs,
+                     uint8_t brightness = LED_BRIGHTNESS)
+{
+    for (int i = 0; i < count; i++) {
+        ledSetColorBrightness(color, brightness);
+        delay(periodMs);
+        ledOff();
+        if (i < count - 1) delay(periodMs);
+    }
+}
+
+/**
  * Cycle through all colors for diagnostic testing.
  * @param delayMs  milliseconds per step (default 5000)
  */
