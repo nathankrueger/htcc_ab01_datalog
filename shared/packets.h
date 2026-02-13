@@ -186,7 +186,7 @@ static inline int buildSensorPacket(char *buf, size_t bufCap,
 /* ─── Command Packet Types ───────────────────────────────────────────────── */
 
 #define CMD_MAX_ARGS     4
-#define CMD_MAX_ARG_LEN  160  /* Max echo: CMD_RESPONSE_BUF_SIZE - 8 for {"r":""} wrapper */
+#define CMD_MAX_ARG_LEN  163  /* Max echo: CMD_RESPONSE_BUF_SIZE - 8 for {"r":""} wrapper */
 #define CMD_MAX_NAME_LEN 32
 #define NODE_ID_MAX_LEN  16
 
