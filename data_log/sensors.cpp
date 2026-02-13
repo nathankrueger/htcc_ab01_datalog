@@ -11,17 +11,7 @@
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
-#ifndef DEBUG
-#define DEBUG 1
-#endif
-
-#if DEBUG
-  #define DBG(fmt, ...)  Serial.printf(fmt, ##__VA_ARGS__)
-  #define DBGLN(msg)     Serial.println(msg)
-#else
-  #define DBG(fmt, ...)  ((void)0)
-  #define DBGLN(msg)     ((void)0)
-#endif
+#include "dbg.h"
 
 /* ─── Sensor Config ─────────────────────────────────────────────────────── */
 

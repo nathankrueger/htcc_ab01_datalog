@@ -16,19 +16,7 @@
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
-#ifndef DEBUG
-#define DEBUG 1
-#endif
-
-#if DEBUG
-  #define DBG(fmt, ...)  Serial.printf(fmt, ##__VA_ARGS__)
-  #define DBGLN(msg)     Serial.println(msg)
-  #define DBGP(msg)      Serial.print(msg)
-#else
-  #define DBG(fmt, ...)  ((void)0)
-  #define DBGLN(msg)     ((void)0)
-  #define DBGP(msg)      ((void)0)
-#endif
+#include "dbg.h"
 
 /* ─── Shared Response Buffer ────────────────────────────────────────────── */
 
@@ -76,7 +64,7 @@ static const ParamDef paramTable[] = {
     { "g2nfreq",         PARAM_UINT32, &cfg.g2nFrequencyHz,   &g2nFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
     { "n2gfreq",         PARAM_UINT32, &cfg.n2gFrequencyHz,   &n2gFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
     /* Read-only params: runtimePtr = NULL */
-    { "nodeid",          PARAM_STRING, cfg.nodeId,            NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
+    { "nodeid",          PARAM_STRING, nodeId,                NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
     { "nodev",           PARAM_UINT16, (void *)&nodeVersion,  NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
     /* Immediate params: ptr → runtime global, runtimePtr = NULL */
     { "rxduty",          PARAM_UINT8,  &rxDutyPercent,        NULL,            0,  100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)     },

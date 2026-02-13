@@ -10,19 +10,7 @@
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
-#ifndef DEBUG
-#define DEBUG 1
-#endif
-
-#if DEBUG
-  #define DBG(fmt, ...)  Serial.printf(fmt, ##__VA_ARGS__)
-  #define DBGLN(msg)     Serial.println(msg)
-  #define DBGP(msg)      Serial.print(msg)
-#else
-  #define DBG(fmt, ...)  ((void)0)
-  #define DBGLN(msg)     ((void)0)
-  #define DBGP(msg)      ((void)0)
-#endif
+#include "dbg.h"
 
 /* ─── CMD/ACK Debug ────────────────────────────────────────────────────── */
 
@@ -79,6 +67,7 @@ static RadioEvents_t radioEvents;
 
 /* Globals shared with commands.cpp (declared extern in commands.h) */
 NodeConfig    cfg;
+char          nodeId[16];     /* Runtime node ID — loaded from EEPROM, separate from cfg */
 uint8_t       rxDutyPercent;
 int8_t        txPower;
 uint8_t       spreadFactor;   /* SF7-SF12 */
@@ -226,9 +215,9 @@ static void handleRxPacket(void)
     DBG("RX: Valid command parsed: %s\n", cmd.cmd);
 
     /* Check if for us (or broadcast) */
-    if (cmd.node_id[0] != '\0' && strcmp(cmd.node_id, cfg.nodeId) != 0) {
+    if (cmd.node_id[0] != '\0' && strcmp(cmd.node_id, nodeId) != 0) {
         DBG("RX: Command not for us (node_id='%s', our id='%s')\n",
-                      cmd.node_id, cfg.nodeId);
+                      cmd.node_id, nodeId);
         CDBG("RX_NOTME node=%s\n", cmd.node_id);
         return;
     }
@@ -255,7 +244,7 @@ static void handleRxPacket(void)
     /* For earlyAck handlers, send ACK before dispatch (and cache it) */
     if (useEarlyAck && !isDuplicate) {
         lastAckLen = buildAckPacket(lastAckBuf, sizeof(lastAckBuf),
-                                    cmd.timestamp, cmd.crc, cfg.nodeId);
+                                    cmd.timestamp, cmd.crc, nodeId);
         if (lastAckLen > 0)
             sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK sent on N2G", addJitter);
     }
@@ -283,7 +272,7 @@ static void handleRxPacket(void)
         if (!useEarlyAck) {
             lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
                                                    cmd.timestamp, cmd.crc,
-                                                   cfg.nodeId, cmdResponseBuf);
+                                                   nodeId, cmdResponseBuf);
             if (lastAckLen > 0)
                 sendAckAndResumeRx(lastAckBuf, lastAckLen, "ACK+payload sent on N2G", addJitter);
         }
@@ -308,8 +297,15 @@ void setup(void)
     Serial.begin(115200);
 
     /* Load config from EEPROM (or compile-time defaults on first boot).
-     * When UPDATE_CFG=1, compile-time values are written to EEPROM. */
+     * When UPDATE_CFG=1, compile-time values are written to EEPROM.
+     * Node ID is in a separate unversioned EEPROM region — survives
+     * CFG_VERSION bumps.  Use WRITE_NODE_ID=abXX to set it. */
     cfgLoad(&cfg);
+    cfgLoadNodeId(nodeId);
+#ifdef WRITE_NODE_ID
+    cfgSaveNodeId(WRITE_NODE_ID);
+    cfgLoadNodeId(nodeId);
+#endif
     rxDutyPercent = cfg.rxDutyPercent;
     txPower       = cfg.txOutputPower;
     spreadFactor  = cfg.spreadingFactor;
@@ -335,11 +331,11 @@ void setup(void)
     applyRxConfig();
 
     /* Command registry */
-    cmdRegistryInit(&cmdRegistry, cfg.nodeId);
+    cmdRegistryInit(&cmdRegistry, nodeId);
     commandsInit(&cmdRegistry);
 
     DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%, sensor_rate=%ds)\n",
-        cfg.nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent, sensorRateSec);
+        nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent, sensorRateSec);
 }
 
 void loop(void)
@@ -375,7 +371,7 @@ void loop(void)
 
         while (offset < nRead) {
             int nextOffset;
-            int pLen = sensorPack(cfg.nodeId, readings, nRead,
+            int pLen = sensorPack(nodeId, readings, nRead,
                                   offset, &nextOffset, pkt, sizeof(pkt));
             if (pLen == 0) {
                 DBG("ERROR: reading \"%s\" alone exceeds max payload\n",

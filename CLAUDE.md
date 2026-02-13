@@ -27,7 +27,8 @@ make upload SKETCH=range_test    # Upload range test sketch
 
 Build-time parameters are passed via Makefile variables:
 ```sh
-make upload NODE_ID=ab02 SEND_INTERVAL_MS=10000 LED_BRIGHTNESS=64 DEBUG=0
+make upload WRITE_NODE_ID=ab02        # One-time: write node ID to EEPROM
+make upload SEND_INTERVAL_MS=10000 LED_BRIGHTNESS=64 DEBUG=0
 make upload LORAWAN_REGION=6          # EU868
 make upload PORT=/dev/ttyUSB1         # Different serial port
 make upload USBIPD_BUSID=2-3         # WSL USB bus ID
@@ -81,7 +82,7 @@ Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
 - **range_test/range_test.ino** — Range test sketch: listens for gateway pings on G2N, displays RSSI on SSD1306 OLED, reads GPS from NEO-6M, sends GPS sensor packet on N2G
 - **shared/packets.h** — Protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting
 - **shared/params.h** — Generic parameter registry: `ParamDef` table, `paramGet`/`paramSet`/`paramsList`/`cmdsList`/`paramsSyncToConfig`. All `static inline`, testable without Arduino
-- **shared/config_types.h** — `NodeConfig` struct and EEPROM versioning constants (`CFG_MAGIC`, `CFG_VERSION`). Separated from config.h so unit tests can include it without `<EEPROM.h>`
+- **shared/config_types.h** — `NodeIdentity` and `NodeConfig` structs, EEPROM layout constants (`EEPROM_MAGIC`, `CFG_VERSION`, `CFG_EEPROM_OFFSET`). Separated from config.h so unit tests can include it without `<EEPROM.h>`
 - **shared/config.h** — EEPROM persistence: `cfgLoad`/`cfgSave`/`cfgDefaults`. Requires Arduino `<EEPROM.h>`
 - **tests/** — Native C unit tests compiled with `gcc -std=c11`. Run via `make test`
 - **Makefile** — Build system with platform detection (macOS/Linux/WSL), `arduino-cli` invocation, compiler defines, USB passthrough, multi-sketch support (`SKETCH` variable)
@@ -99,14 +100,25 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 - **CubeCell `snprintf %g`:** Doesn't strip trailing zeros. Custom `fmtVal()` in packets.h handles this so CRC stays stable between node and gateway.
 - **Sensor class IDs** (the `"s"` field) are derived from alphabetical sort of Python class names in the companion `data_log` project's `sensors/__init__.py`.
 
-## EEPROM Config Versioning
+## EEPROM Layout
 
-`NodeConfig` is persisted to EEPROM with a two-field validity check in `config_types.h`:
+EEPROM (768 bytes) has two independent regions defined in `config_types.h`:
 
-- **`CFG_MAGIC`** (0xCF) — Fixed sentinel. Detects blank/uninitialized EEPROM. **Never changes.**
-- **`CFG_VERSION`** (currently 4) — Struct layout version. **Bump this whenever you add, remove, or reorder fields in `NodeConfig`.**
+```
+Bytes 0-16:   NodeIdentity — unversioned (survives CFG_VERSION bumps)
+  [0]     NODE_ID_MAGIC (0x4E) — "has node ID been written?"
+  [1-16]  nodeId[16]           — null-terminated identifier
+Bytes 17+:    NodeConfig — versioned (resets when layout changes)
+  [17]    CFG_MAGIC (0xCF)     — "has config been written?"
+  [18]    cfgVersion (1)       — "is the layout current?"
+  [19+]   tunable params       — txpwr, rxduty, sf, bw, freqs, sensor_rate
+```
 
-`cfgLoad()` checks both: if either doesn't match, the EEPROM data is treated as invalid and compile-time defaults are loaded. This means deploying firmware with a new `CFG_VERSION` automatically resets all nodes to defaults — any previously saved txpwr/rxduty/sf/bw customizations will be lost. That's intentional: the old EEPROM bytes no longer map to the right fields.
+**Node ID** is stored separately from the versioned config. It is written once via `make upload WRITE_NODE_ID=ab02` and persists across all future `CFG_VERSION` bumps. If never written (blank EEPROM), falls back to compile-time `NODE_ID` default.
+
+**Config validation:** `cfgLoad()` checks both `CFG_MAGIC` and `cfgVersion`. If either doesn't match, compile-time defaults are used.
+
+**`CFG_VERSION`** (currently 1) — **Bump when you add, remove, or reorder fields in `NodeConfig`.** This resets radio/timing params to defaults but **never touches node ID**.
 
 **When to bump `CFG_VERSION`:**
 - Adding a new field to `NodeConfig` (e.g., a new tunable parameter)
@@ -121,7 +133,8 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 ## Configuration Defines
 
 All configurable via Makefile variables (which become `-D` compiler flags) or `#define` in the sketch:
-- `NODE_ID` (string, default `"ab01"`) — node identifier
+- `WRITE_NODE_ID` (string) — one-time write of node ID to EEPROM (e.g., `make upload WRITE_NODE_ID=ab02`)
+- `NODE_ID` (string, default `"ab01"`) — compile-time fallback for blank EEPROM; also used directly by range_test
 - `SEND_INTERVAL_MS` / `CYCLE_PERIOD_MS` (default 5000) — cycle period
 - `LED_BRIGHTNESS` (0-255, default 64) — NeoPixel brightness
 - `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros

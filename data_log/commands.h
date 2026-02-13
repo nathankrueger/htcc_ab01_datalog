@@ -19,6 +19,7 @@ extern char cmdResponseBuf[CMD_RESPONSE_BUF_SIZE];
 /* ─── Globals defined in data_log.ino, used by command handlers ──────── */
 
 extern NodeConfig    cfg;
+extern char          nodeId[16];
 extern uint8_t       rxDutyPercent;
 extern int8_t        txPower;
 extern uint8_t       spreadFactor;

@@ -1,15 +1,17 @@
 /*
  * config.h — EEPROM-backed persistent configuration for CubeCell HTCC-AB01
  *
- * Stores node identity and tunable parameters in EEPROM (768 bytes available).
- * Values survive power cycles and resets.
+ * EEPROM layout (768 bytes available):
+ *   Bytes 0-16:  NodeIdentity — unversioned node ID (survives CFG_VERSION bumps)
+ *   Bytes 17+:   NodeConfig   — versioned tunable params (resets on version change)
  *
  * Workflow:
  *   1. Compile-time #defines provide defaults (overridable via Makefile -D flags)
- *   2. cfgLoad() reads EEPROM into a NodeConfig struct
- *   3. If EEPROM is uninitialised (wrong magic/version), compile-time defaults are used
- *   4. When UPDATE_CFG=1, compile-time values replace EEPROM contents
- *      (EEPROM is only written if the values actually differ — no unnecessary wear)
+ *   2. cfgLoad() reads NodeConfig from EEPROM offset 17
+ *   3. If cfgVersion doesn't match, compile-time defaults are used
+ *   4. cfgLoadNodeId() reads node ID from EEPROM offset 0 (independent of config)
+ *   5. WRITE_NODE_ID compile flag writes node ID to EEPROM on boot (one-time)
+ *   6. UPDATE_CFG=1 forces config to compile-time defaults (does not touch node ID)
  *
  * Requires radio.h to be included first (for DEFAULT_TX_POWER).
  */
@@ -64,16 +66,66 @@
 /* ─── Config Struct (shared with unit tests via config_types.h) ───────────── */
 
 #include "config_types.h"
+#include "dbg.h"
 
-/* ─── Helpers ─────────────────────────────────────────────────────────────── */
+/* ─── Node Identity (EEPROM offset 0, unversioned) ────────────────────────── */
+
+/*
+ * Load node ID from the unversioned EEPROM region (offset 0).
+ * If NODE_ID_MAGIC is missing (blank/uninitialised), copies compile-time
+ * NODE_ID as fallback.  buf must be at least 16 bytes.
+ *
+ * Call AFTER cfgLoad() (which initialises EEPROM).
+ */
+static inline void cfgLoadNodeId(char *buf)
+{
+    NodeIdentity nid;
+    EEPROM.get(0, nid);
+
+    if (nid.magic == NODE_ID_MAGIC && nid.nodeId[0] != '\0') {
+        memcpy(buf, nid.nodeId, sizeof(nid.nodeId));
+        buf[sizeof(nid.nodeId) - 1] = '\0';
+        DBG("[CFG] loadNodeId: EEPROM \"%s\"\n", buf);
+    } else {
+        strncpy(buf, NODE_ID, 15);
+        buf[15] = '\0';
+        DBG("[CFG] loadNodeId: magic mismatch (0x%02X != 0x%02X), using default \"%s\"\n",
+            nid.magic, NODE_ID_MAGIC, buf);
+    }
+}
+
+/*
+ * Write node ID to the unversioned EEPROM region (offset 0).
+ * Only writes if the data actually differs (wear leveling).
+ * Returns true if a flash write occurred.
+ */
+static inline bool cfgSaveNodeId(const char *id)
+{
+    NodeIdentity nid;
+    nid.magic = NODE_ID_MAGIC;
+    memset(nid.nodeId, 0, sizeof(nid.nodeId));
+    strncpy(nid.nodeId, id, sizeof(nid.nodeId) - 1);
+
+    NodeIdentity existing;
+    EEPROM.get(0, existing);
+    if (memcmp(&existing, &nid, sizeof(NodeIdentity)) == 0) {
+        DBG("[CFG] saveNodeId: \"%s\" unchanged, skip write\n", id);
+        return false;
+    }
+
+    EEPROM.put(0, nid);
+    EEPROM.commit();
+    DBG("[CFG] saveNodeId: wrote \"%s\" to EEPROM\n", id);
+    return true;
+}
+
+/* ─── Versioned Config (EEPROM offset 17) ─────────────────────────────────── */
 
 /* Populate a NodeConfig from compile-time #defines. */
 static inline void cfgDefaults(NodeConfig *c)
 {
-    c->magic      = CFG_MAGIC;
-    c->cfgVersion = CFG_VERSION;
-    strncpy(c->nodeId, NODE_ID, sizeof(c->nodeId) - 1);
-    c->nodeId[sizeof(c->nodeId) - 1] = '\0';
+    c->magic           = CFG_MAGIC;
+    c->cfgVersion      = CFG_VERSION;
     c->txOutputPower   = TX_OUTPUT_POWER;
     c->rxDutyPercent   = RX_DUTY_PERCENT_DEFAULT;
     c->spreadingFactor = SPREADING_FACTOR_DEFAULT;
@@ -84,46 +136,64 @@ static inline void cfgDefaults(NodeConfig *c)
 }
 
 /*
- * Save *c to EEPROM.  Reads back the current EEPROM contents first and
- * only writes when they differ (explicit memcmp — we don't rely on the
- * library's internal comparison).
+ * Save *c to EEPROM at CFG_EEPROM_OFFSET.  Reads back the current contents
+ * first and only writes when they differ (no unnecessary wear).
  *
  * Returns true if a flash write occurred.
  */
 static inline bool cfgSave(NodeConfig *c)
 {
     NodeConfig existing;
-    EEPROM.get(0, existing);
-    if (memcmp(&existing, c, sizeof(NodeConfig)) == 0)
-        return false;               /* identical — skip write */
+    EEPROM.get(CFG_EEPROM_OFFSET, existing);
+    if (memcmp(&existing, c, sizeof(NodeConfig)) == 0) {
+        DBG("[CFG] save: unchanged, skip write\n");
+        return false;
+    }
 
-    EEPROM.put(0, *c);
+    EEPROM.put(CFG_EEPROM_OFFSET, *c);
     EEPROM.commit();
+    DBG("[CFG] save: wrote %u bytes to EEPROM offset %u\n",
+        (unsigned)sizeof(NodeConfig), (unsigned)CFG_EEPROM_OFFSET);
     return true;
 }
 
 /*
  * Load configuration from EEPROM into *c.
  *
- * Returns true if EEPROM contained a valid config, false if defaults were used.
+ * Initialises the EEPROM subsystem (covers both NodeIdentity and NodeConfig
+ * regions).  Returns true if EEPROM contained a valid config, false if
+ * defaults were used.
  *
  * When UPDATE_CFG == 1 the struct is always populated from compile-time
  * #defines and written to EEPROM (only if the bytes actually differ).
  */
 static inline bool cfgLoad(NodeConfig *c)
 {
-    EEPROM.begin(sizeof(NodeConfig));
-    EEPROM.get(0, *c);
+    EEPROM.begin(CFG_EEPROM_OFFSET + sizeof(NodeConfig));
+    EEPROM.get(CFG_EEPROM_OFFSET, *c);
 
     bool valid = (c->magic == CFG_MAGIC && c->cfgVersion == CFG_VERSION);
 
     if (!valid) {
         /* First boot, blank EEPROM, or struct layout changed — use defaults.
          * Don't write to EEPROM; the user must opt in with UPDATE_CFG=1. */
+        if (c->magic != CFG_MAGIC)
+            DBG("[CFG] load: magic mismatch (0x%02X != 0x%02X)\n",
+                c->magic, CFG_MAGIC);
+        if (c->cfgVersion != CFG_VERSION)
+            DBG("[CFG] load: version mismatch (%u != %u)\n",
+                c->cfgVersion, CFG_VERSION);
+
+        /* Reset to defaults, invalid content in EEPROM */
+        DBG("[CFG] load: using compile-time defaults\n");
         cfgDefaults(c);
+    } else {
+        /* Content loaded from EEPROM valid */
+        DBG("[CFG] load: valid config from EEPROM (v%u)\n", c->cfgVersion);
     }
 
 #if UPDATE_CFG
+    DBG("[CFG] load: UPDATE_CFG=1, forcing defaults\n");
     cfgDefaults(c);
     cfgSave(c);
 #endif

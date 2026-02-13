@@ -19,6 +19,7 @@
 
 /* Simulated runtime globals */
 static NodeConfig testCfg;
+static char       testNodeId[16];
 static uint16_t   testNodeVersion;
 static uint8_t    testBW;
 static uint8_t    testRxDuty;
@@ -34,7 +35,7 @@ static void testOnSetRadio(const char *name) { (void)name; onSetCallCount++; }
 /* Standard param table (alpha-sorted by name) */
 static const ParamDef testTable[] = {
     { "bw",              PARAM_UINT8,  &testBW,             NULL,  0,    2, true,  testOnSetRadio,  offsetof(NodeConfig, bandwidth)        },
-    { "nodeid",          PARAM_STRING, testCfg.nodeId,      NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
+    { "nodeid",          PARAM_STRING, testNodeId,          NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
     { "nodev",           PARAM_UINT16, &testNodeVersion,    NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
     { "rxduty",          PARAM_UINT8,  &testRxDuty,         NULL,  0,  100, true,  NULL,            offsetof(NodeConfig, rxDutyPercent)     },
     { "sensor_rate_sec", PARAM_UINT16, &testSensorRateSec,  NULL,  1, 3600, true,  NULL,            offsetof(NodeConfig, sensorRateSec)    },
@@ -46,7 +47,8 @@ static const ParamDef testTable[] = {
 static void resetFixtures(void)
 {
     memset(&testCfg, 0, sizeof(testCfg));
-    strncpy(testCfg.nodeId, "ab01", sizeof(testCfg.nodeId));
+    memset(testNodeId, 0, sizeof(testNodeId));
+    strncpy(testNodeId, "ab01", sizeof(testNodeId) - 1);
     testNodeVersion = 1;
     testCfg.txOutputPower = 14;
     testCfg.rxDutyPercent = 90;
@@ -156,7 +158,7 @@ TEST(test_paramSet_readonly)
     char buf[128];
     paramSet(testTable, TEST_TABLE_COUNT, "nodeid", "xx", buf, sizeof(buf));
     ASSERT_STR_EQ("{\"e\":\"read-only: nodeid\"}", buf);
-    ASSERT_STR_EQ("ab01", testCfg.nodeId);  /* unchanged */
+    ASSERT_STR_EQ("ab01", testNodeId);  /* unchanged */
     TEST_PASS();
 }
 
@@ -381,10 +383,9 @@ TEST(test_syncToConfig_skips_readonly)
     ASSERT_INT_EQ(7, dst.spreadingFactor);
     ASSERT_INT_EQ(0, dst.bandwidth);
 
-    /* Read-only fields (magic, cfgVersion, nodeId) should NOT have been touched */
+    /* Read-only fields (magic, cfgVersion) should NOT have been touched */
     ASSERT_INT_EQ(0xFF, dst.magic);
     ASSERT_INT_EQ(0xFF, dst.cfgVersion);
-    ASSERT_INT_EQ(0xFF, (uint8_t)dst.nodeId[0]);
     TEST_PASS();
 }
 
