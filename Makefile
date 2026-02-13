@@ -61,7 +61,6 @@ LORAWAN_REGION ?= 9
 
 # Parameters for this instance — passed as compiler defines.
 NODE_ID ?= ab01
-SEND_INTERVAL_MS ?= 5000
 LED_BRIGHTNESS ?= 16
 DEBUG ?= 0
 LED_ORDER ?= GRB
@@ -73,7 +72,7 @@ STRING_DEFINES = NODE_ID LED_ORDER
 # Numeric defines (no quotes)
 GPS_LED ?= 0
 CMD_DEBUG ?= 0
-NUMERIC_DEFINES = SEND_INTERVAL_MS LED_BRIGHTNESS DEBUG GPS_LED CMD_DEBUG UPDATE_CFG NODE_VERSION
+NUMERIC_DEFINES = LED_BRIGHTNESS DEBUG GPS_LED CMD_DEBUG UPDATE_CFG NODE_VERSION
 
 # Build the combined define strings for C and C++ flags
 # String defines get quotes, numeric defines don't

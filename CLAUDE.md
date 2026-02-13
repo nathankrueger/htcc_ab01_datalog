@@ -29,7 +29,7 @@ make upload SKETCH=range_test    # Upload range test sketch
 Build-time parameters are passed via Makefile variables:
 ```sh
 make upload WRITE_NODE_ID=ab02        # One-time: write node ID to EEPROM
-make upload SEND_INTERVAL_MS=10000 LED_BRIGHTNESS=64 DEBUG=0
+make upload LED_BRIGHTNESS=64 DEBUG=0
 make upload LORAWAN_REGION=6          # EU868
 make upload PORT=/dev/ttyUSB1         # Different serial port
 make upload USBIPD_BUSID=2-3         # WSL USB bus ID
@@ -136,7 +136,7 @@ Bytes 17+:    NodeConfig — versioned (resets when layout changes)
 All configurable via Makefile variables (which become `-D` compiler flags) or `#define` in the sketch:
 - `WRITE_NODE_ID` (string) — one-time write of node ID to EEPROM (e.g., `make upload WRITE_NODE_ID=ab02`)
 - `NODE_ID` (string, default `"ab01"`) — compile-time fallback for blank EEPROM; also used directly by range_test
-- `SEND_INTERVAL_MS` / `CYCLE_PERIOD_MS` (default 5000) — cycle period
+- `CYCLE_PERIOD_MS` (default 5000) — cycle period
 - `LED_BRIGHTNESS` (0-255, default 64) — NeoPixel brightness
 - `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros
 - `RX_DUTY_PERCENT_DEFAULT` (0-100, default 90) — fraction of cycle spent listening for commands (datalog only)
