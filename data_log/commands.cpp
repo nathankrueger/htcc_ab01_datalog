@@ -157,6 +157,13 @@ static void handleRssi(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
     DBG("RSSI: %d dBm\n", (int)lastRxRssi);
 }
 
+static void handleUptime(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    unsigned long uptimeSec = millis() / 1000;
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%lu}", uptimeSec);
+    DBG("UPTIME: %lu s\n", uptimeSec);
+}
+
 static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 1 || args[0][0] == '\0') {
@@ -285,10 +292,11 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getparam",  handleGetParam,  CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
-    cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
     cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
     cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "uptime",    handleUptime,    CMD_SCOPE_ANY, false);     /* late_ack: include uptime in response */
     buildCmdNameList(reg);
 }
