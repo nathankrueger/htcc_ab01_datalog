@@ -7,6 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Multi-sketch Arduino project for the Heltec CubeCell HTCC-AB01 (ASR650x MCU). The default sketch reads BME280 sensor data (temperature, pressure, humidity) and broadcasts compact JSON packets over LoRa to a gateway on a Raspberry Pi Zero 2 W. A second sketch (`range_test`) is a field tool for measuring LoRa reception range using an SSD1306 OLED display and NEO-6M GPS module. Both sketches use a dual-channel LoRa architecture with shared protocol code.
 
 See: https://heltec.org/project/htcc-ab01-v2/
+See: https://github.com/HelTecAutomation/CubeCell-Arduino/tags
 
 ## Build Commands
 
