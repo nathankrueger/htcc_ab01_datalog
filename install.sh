@@ -19,7 +19,7 @@ set -euo pipefail
 
 # ─── tunables ─────────────────────────────────────────────────────────────────
 ARDUINO_CLI_VER="1.4.1"
-CUBECELL_URL="https://github.com/HelTecAutomation/CubeCell-Arduino/releases/download/V1.5.0/package_CubeCell_index.json"
+CUBECELL_URL="https://github.com/HelTecAutomation/CubeCell-Arduino/releases/download/V1.7.1/package_CubeCell_index.json"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── platform detection ───────────────────────────────────────────────────────
