@@ -52,12 +52,6 @@
 #define LED_BRIGHTNESS           128          /* 0-255, default brightness */
 #endif
 
-/* Max random delay (ms) before ACKing a broadcast command.
- * Prevents ACK collisions when multiple nodes respond simultaneously. */
-#ifndef BROADCAST_ACK_JITTER_MS
-#define BROADCAST_ACK_JITTER_MS  500
-#endif
-
 /* CRC-32, Reading, buildSensorPacket, CommandPacket, parseCommand,
  * buildAckPacket are all in packets.h */
 
@@ -75,6 +69,7 @@ uint8_t       loraBW;         /* 0=125kHz, 1=250kHz, 2=500kHz */
 uint32_t      n2gFreqHz;      /* Node-to-Gateway frequency (Hz) */
 uint32_t      g2nFreqHz;      /* Gateway-to-Node frequency (Hz) */
 uint16_t      sensorRateSec;  /* Seconds between sensor TX */
+uint16_t      broadcastAckJitterMs; /* Max jitter before ACK (0=off) */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
 
@@ -161,8 +156,8 @@ static void onRxError(void)
 static void sendAckAndResumeRx(const char *buf, int len, const char *label,
                                bool addJitter = false)
 {
-    if (addJitter && BROADCAST_ACK_JITTER_MS > 0) {
-        unsigned long jitter = random(1, BROADCAST_ACK_JITTER_MS);
+    if (addJitter && broadcastAckJitterMs > 0) {
+        unsigned long jitter = random(1, broadcastAckJitterMs);
         DBG("Broadcast ACK jitter: %lums\n", jitter);
         delay(jitter);
     }
@@ -236,10 +231,12 @@ static void handleRxPacket(void)
     CDBG("CMD cmd=%s id=%s dup=%s\n",
          cmd.cmd, commandId, isDuplicate ? "Y" : "N");
 
-    /* Look up handler to check earlyAck / ackJitter flags */
+    /* Look up handler to check earlyAck flag */
     CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
     bool useEarlyAck = (handler == NULL || handler->earlyAck);
-    bool addJitter = (handler != NULL && handler->ackJitter);
+    /* Add jitter for ALL broadcast responses to prevent ACK collisions */
+    bool is_broadcast = (cmd.node_id[0] == '\0');
+    bool addJitter = is_broadcast && broadcastAckJitterMs > 0;
 
     /* For earlyAck handlers, send ACK before dispatch (and cache it) */
     if (useEarlyAck && !isDuplicate) {
@@ -313,6 +310,7 @@ void setup(void)
     n2gFreqHz     = cfg.n2gFrequencyHz;
     g2nFreqHz     = cfg.g2nFrequencyHz;
     sensorRateSec = cfg.sensorRateSec;
+    broadcastAckJitterMs = cfg.broadcastAckJitterMs;
 
     /* BME280 sensor */
     sensorInit();

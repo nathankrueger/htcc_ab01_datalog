@@ -59,6 +59,10 @@
 #define SENSOR_RATE_SEC_DEFAULT  5                  /* seconds between sensor TX */
 #endif
 
+#ifndef BROADCAST_ACK_JITTER_DEFAULT
+#define BROADCAST_ACK_JITTER_DEFAULT 500            /* ms, 0 to disable */
+#endif
+
 #ifndef UPDATE_CFG
 #define UPDATE_CFG               0
 #endif
@@ -133,6 +137,7 @@ static inline void cfgDefaults(NodeConfig *c)
     c->n2gFrequencyHz  = N2G_FREQUENCY_DEFAULT;
     c->g2nFrequencyHz  = G2N_FREQUENCY_DEFAULT;
     c->sensorRateSec   = SENSOR_RATE_SEC_DEFAULT;
+    c->broadcastAckJitterMs = BROADCAST_ACK_JITTER_DEFAULT;
 }
 
 /*
