@@ -11,7 +11,7 @@
 #include <stdint.h>
 
 #define CFG_MAGIC   0xCF          /* Fixed sentinel — never changes     */
-#define CFG_VERSION 3             /* Bump when NodeConfig fields change */
+#define CFG_VERSION 4             /* Bump when NodeConfig fields change */
 
 typedef struct __attribute__((packed)) NodeConfig {
     uint8_t  magic;              /*  1B — fixed sentinel (CFG_MAGIC)   */
@@ -23,6 +23,7 @@ typedef struct __attribute__((packed)) NodeConfig {
     uint8_t  bandwidth;          /*  1B — 0=125kHz, 1=250kHz, 2=500kHz */
     uint32_t n2gFrequencyHz;     /*  4B — Node-to-Gateway freq (Hz)    */
     uint32_t g2nFrequencyHz;     /*  4B — Gateway-to-Node freq (Hz)    */
-} NodeConfig;                    /* 30B total                          */
+    uint16_t sensorRateSec;      /*  2B — seconds between sensor TX    */
+} NodeConfig;                    /* 32B total                          */
 
 #endif /* CONFIG_TYPES_H */

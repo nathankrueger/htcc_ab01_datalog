@@ -49,7 +49,8 @@ typedef void (*ParamOnSet)(const char *name);
 typedef struct {
     const char  *name;       /* param name — table MUST be alpha-sorted by name */
     ParamType    type;
-    void        *ptr;        /* pointer to runtime variable */
+    void        *ptr;        /* setparam target: cfg field (staged) or runtime global (immediate) */
+    void        *runtimePtr; /* staged params: runtime global to copy to on rcfg_radio; NULL = immediate */
     int16_t      minVal;     /* min allowed value (ignored for STRING) */
     int16_t      maxVal;     /* max allowed value (ignored for STRING) */
     bool         writable;   /* false = read-only via setparam */
@@ -306,6 +307,28 @@ static inline int cmdsList(const char **cmdNames, int cmdCount,
     pos += snprintf(buf + pos, bufSize - pos, "],\"m\":%d}", more);
 
     return pos;
+}
+
+/* ─── paramsApplyStaged ──────────────────────────────────────────────────── */
+
+/*
+ * Copy staged (radio) params from their cfg fields to runtime globals.
+ * Only copies params where runtimePtr != NULL.
+ * Called by rcfg_radio after setparam updates cfg fields.
+ */
+static inline void paramsApplyStaged(const ParamDef *table, int count)
+{
+    for (int i = 0; i < count; i++) {
+        if (table[i].runtimePtr == NULL) continue;
+        switch (table[i].type) {
+            case PARAM_INT8:   memcpy(table[i].runtimePtr, table[i].ptr, sizeof(int8_t));   break;
+            case PARAM_UINT8:  memcpy(table[i].runtimePtr, table[i].ptr, sizeof(uint8_t));  break;
+            case PARAM_INT16:  memcpy(table[i].runtimePtr, table[i].ptr, sizeof(int16_t));  break;
+            case PARAM_UINT16: memcpy(table[i].runtimePtr, table[i].ptr, sizeof(uint16_t)); break;
+            case PARAM_UINT32: memcpy(table[i].runtimePtr, table[i].ptr, sizeof(uint32_t)); break;
+            case PARAM_STRING: break;
+        }
+    }
 }
 
 /* ─── paramsSyncToConfig ─────────────────────────────────────────────────── */

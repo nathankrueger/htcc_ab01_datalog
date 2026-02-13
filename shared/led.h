@@ -171,28 +171,45 @@ static void ledBlink(LEDColor color, int count, unsigned long periodMs,
  * Cycle through all colors for diagnostic testing.
  * @param delayMs  milliseconds per step (default 5000)
  */
-static void ledTest(unsigned long delayMs = 5000)
+static void ledTest(unsigned long delayMs = 5000,
+                    uint8_t brightness = LED_BRIGHTNESS)
 {
     const unsigned long delayAmt = delayMs;
-    LEDColor colors[] = {
-        LED_RED, LED_GREEN, LED_BLUE, LED_YELLOW, LED_CYAN, LED_MAGENTA, LED_WHITE
-    };
-    const int numColors = 7;
 
-    for (int i = 0; i < numColors; i++) {
-        ledSetColor(colors[i]);
+    struct { LEDColor color; const char *name; } steps[] = {
+        { LED_RED,     "red"     },
+        { LED_GREEN,   "green"   },
+        { LED_BLUE,    "blue"    },
+        { LED_YELLOW,  "yellow"  },
+        { LED_CYAN,    "cyan"    },
+        { LED_MAGENTA, "magenta" },
+        { LED_WHITE,   "white"   },
+    };
+    const int numSteps = sizeof(steps) / sizeof(steps[0]);
+
+    Serial.printf("LED test: %d colors at brightness %d, %lu ms each\n",
+                  numSteps, brightness, delayAmt);
+
+    for (int i = 0; i < numSteps; i++) {
+        Serial.printf("  [%d/%d] %s\n", i + 1, numSteps, steps[i].name);
+        ledSetColorBrightness(steps[i].color, brightness);
         delay(delayAmt);
     }
 
     /* Full-brightness primary test */
+    Serial.println("  Full-brightness RGB test");
+    Serial.println("    red 255");
     ledSetRGB(255, 0, 0);
     delay(delayAmt);
+    Serial.println("    green 255");
     ledSetRGB(0, 255, 0);
     delay(delayAmt);
+    Serial.println("    blue 255");
     ledSetRGB(0, 0, 255);
     delay(delayAmt);
 
     ledOff();
+    Serial.println("LED test complete");
 }
 
 #endif /* LED_H */

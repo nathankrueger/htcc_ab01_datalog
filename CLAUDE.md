@@ -104,7 +104,7 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 `NodeConfig` is persisted to EEPROM with a two-field validity check in `config_types.h`:
 
 - **`CFG_MAGIC`** (0xCF) — Fixed sentinel. Detects blank/uninitialized EEPROM. **Never changes.**
-- **`CFG_VERSION`** (currently 1) — Struct layout version. **Bump this whenever you add, remove, or reorder fields in `NodeConfig`.**
+- **`CFG_VERSION`** (currently 4) — Struct layout version. **Bump this whenever you add, remove, or reorder fields in `NodeConfig`.**
 
 `cfgLoad()` checks both: if either doesn't match, the EEPROM data is treated as invalid and compile-time defaults are loaded. This means deploying firmware with a new `CFG_VERSION` automatically resets all nodes to defaults — any previously saved txpwr/rxduty/sf/bw customizations will be lost. That's intentional: the old EEPROM bytes no longer map to the right fields.
 
@@ -129,11 +129,18 @@ All configurable via Makefile variables (which become `-D` compiler flags) or `#
 
 ## Parameter Registry
 
-Runtime-tunable parameters are defined as a `ParamDef` table in `data_log.ino`. Adding a new parameter is a single row addition — no new command handlers needed.
+Runtime-tunable parameters are defined as a `ParamDef` table in `commands.cpp`. Adding a new parameter is a single row addition — no new command handlers needed.
 
-Commands: `getparam <name>`, `setparam <name> <value>`, `getparams [offset]`, `getcmds [offset]`. `setparam` changes runtime only; `savecfg` persists to EEPROM via `paramsSyncToConfig()`.
+Commands: `getparam <name>`, `setparam <name> <value>`, `getparams [offset]`, `getcmds [offset]`. `savecfg` persists to EEPROM via `paramsSyncToConfig()`.
 
 The param table **must** be in alphabetical order by name (JSON key ordering for CRC matching). List responses use self-terminating pagination with a `"m"` (more) flag for the 171-byte ACK payload limit.
+
+**Staged vs Immediate parameters:**
+- **Radio params** (bw, sf, txpwr, n2gfreq, g2nfreq) are **staged**: `setparam` writes to `cfg.*` field and changes only take effect after `rcfg_radio`, which calls `paramsApplyStaged()` to copy cfg → runtime globals then reconfigures radio hardware. This prevents ACK failures from mid-conversation radio changes and ensures gateway coordination.
+- **Non-radio params** (rxduty, sensor_rate_sec) are **immediate**: `setparam` writes to the runtime global directly — no `rcfg_radio` needed.
+- **All writable params** require `savecfg` to persist to EEPROM.
+
+In `ParamDef`, staged params have `runtimePtr` pointing to the runtime global; immediate params have `runtimePtr = NULL` and `ptr` pointing directly at the runtime global. Both use `cfgOffset` for EEPROM persistence.
 
 ## Range Test Tool
 

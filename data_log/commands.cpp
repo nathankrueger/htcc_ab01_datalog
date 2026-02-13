@@ -52,11 +52,47 @@ void applyRxConfig(void)
                       0, true, 0, 0, LORA_IQ_INVERSION_ON, true);
 }
 
+/* ─── Parameter Table ───────────────────────────────────────────────────── */
+
+/*
+ * Parameter registry — MUST be in alphabetical order by name.
+ *
+ * STAGED vs IMMEDIATE:
+ *   Radio params (bw, sf, txpwr, n2gfreq, g2nfreq) are staged: ptr → cfg.*
+ *   field, runtimePtr → runtime global. setparam updates cfg; rcfg_radio
+ *   copies cfg → runtime via paramsApplyStaged().
+ *
+ *   Non-radio params (rxduty, sensor_rate_sec) are immediate: ptr → runtime
+ *   global, runtimePtr = NULL. setparam updates runtime directly.
+ *
+ * Fields: name, type, ptr, runtimePtr, min, max, writable, onSet, cfgOffset
+ *   cfgOffset = offsetof(NodeConfig, field) for EEPROM-persisted params
+ *   cfgOffset = CFG_OFFSET_NONE (0xFF) for read-only / non-persisted params
+ */
+static const uint16_t nodeVersion = NODE_VERSION;
+static const ParamDef paramTable[] = {
+    /* Staged radio params: ptr → cfg, runtimePtr → runtime global */
+    { "bw",              PARAM_UINT8,  &cfg.bandwidth,        &loraBW,        0,    2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
+    { "g2nfreq",         PARAM_UINT32, &cfg.g2nFrequencyHz,   &g2nFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
+    { "n2gfreq",         PARAM_UINT32, &cfg.n2gFrequencyHz,   &n2gFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
+    /* Read-only params: runtimePtr = NULL */
+    { "nodeid",          PARAM_STRING, cfg.nodeId,            NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
+    { "nodev",           PARAM_UINT16, (void *)&nodeVersion,  NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
+    /* Immediate params: ptr → runtime global, runtimePtr = NULL */
+    { "rxduty",          PARAM_UINT8,  &rxDutyPercent,        NULL,            0,  100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)     },
+    { "sensor_rate_sec", PARAM_UINT16, &sensorRateSec,        NULL,            1, 3600, true,  NULL, offsetof(NodeConfig, sensorRateSec)    },
+    /* Staged radio params (continued) */
+    { "sf",              PARAM_UINT8,  &cfg.spreadingFactor,  &spreadFactor,   7,   12, true,  NULL, offsetof(NodeConfig, spreadingFactor)   },
+    { "txpwr",           PARAM_INT8,   &cfg.txOutputPower,    &txPower,      -17,   22, true,  NULL, offsetof(NodeConfig, txOutputPower)     },
+};
+static const int PARAM_COUNT = sizeof(paramTable) / sizeof(paramTable[0]);
+
 /*
  * rcfg_radio handler: Apply staged radio config from cfg to runtime.
  *
  * Call this after setparam changes to radio params (bw, sf, txpwr, n2gfreq,
- * g2nfreq). Copies cfg.* to runtime globals and reconfigures radio hardware.
+ * g2nfreq). Copies staged cfg.* fields to runtime globals (data-driven via
+ * runtimePtr in param table) and reconfigures radio hardware.
  * Uses early_ack=true so ACK is sent before radio changes take effect.
  */
 static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
@@ -65,13 +101,8 @@ static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int a
     (void)args;
     (void)arg_count;
 
-    /* Copy config to runtime globals */
-    spreadFactor  = cfg.spreadingFactor;
-    loraBW        = cfg.bandwidth;
-    txPower       = cfg.txOutputPower;
-    n2gFreqHz     = cfg.n2gFrequencyHz;
-    g2nFreqHz     = cfg.g2nFrequencyHz;
-    rxDutyPercent = cfg.rxDutyPercent;
+    /* Copy staged params (cfg → runtime globals) */
+    paramsApplyStaged(paramTable, PARAM_COUNT);
 
     /* Apply to radio hardware */
     applyTxConfig();
@@ -84,33 +115,6 @@ static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int a
     DBG("RCFG_RADIO: sf=%d bw=%d txpwr=%d n2g=%lu g2n=%lu\n",
         spreadFactor, loraBW, txPower, n2gFreqHz, g2nFreqHz);
 }
-
-/* ─── Parameter Table ───────────────────────────────────────────────────── */
-
-/*
- * Parameter registry — MUST be in alphabetical order by name.
- *
- * STAGED RADIO CONFIG: Radio params (bw, sf, txpwr, n2gfreq, g2nfreq) now
- * point to cfg.* fields instead of runtime globals. setparam updates cfg,
- * but radio hardware is only reconfigured when rcfg_radio is called.
- * This prevents ACK failures when changing radio settings.
- *
- * Fields: name, type, ptr, min, max, writable, onSet, cfgOffset
- *   cfgOffset = offsetof(NodeConfig, field) for EEPROM-persisted params
- *   cfgOffset = CFG_OFFSET_NONE (0xFF) for read-only / non-persisted params
- */
-static const uint16_t nodeVersion = NODE_VERSION;
-static const ParamDef paramTable[] = {
-    { "bw",      PARAM_UINT8,  &cfg.bandwidth,        0,   2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
-    { "g2nfreq", PARAM_UINT32, &cfg.g2nFrequencyHz,   0,   0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
-    { "n2gfreq", PARAM_UINT32, &cfg.n2gFrequencyHz,   0,   0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
-    { "nodeid",  PARAM_STRING, cfg.nodeId,            0,   0, false, NULL, CFG_OFFSET_NONE                        },
-    { "nodev",   PARAM_UINT16, (void *)&nodeVersion,  0,   0, false, NULL, CFG_OFFSET_NONE                        },
-    { "rxduty",  PARAM_UINT8,  &cfg.rxDutyPercent,    0, 100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)    },
-    { "sf",      PARAM_UINT8,  &cfg.spreadingFactor,  7,  12, true,  NULL, offsetof(NodeConfig, spreadingFactor)  },
-    { "txpwr",   PARAM_INT8,   &cfg.txOutputPower,  -17,  22, true,  NULL, offsetof(NodeConfig, txOutputPower)    },
-};
-static const int PARAM_COUNT = sizeof(paramTable) / sizeof(paramTable[0]);
 
 /* ─── Command Handlers ──────────────────────────────────────────────────── */
 
@@ -194,12 +198,17 @@ static void handleReset(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_c
 static void handleTestLed(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     unsigned long delayMs = 5000;
+    uint8_t brightness = LED_BRIGHTNESS;
     if (arg_count >= 1) {
         long val = atol(args[0]);
         if (val > 0) delayMs = (unsigned long)val;
     }
-    DBG("TESTLED: cycling colors, %lums per step\n", delayMs);
-    ledTest(delayMs);
+    if (arg_count >= 2) {
+        long val = atol(args[1]);
+        if (val >= 0 && val <= 255) brightness = (uint8_t)val;
+    }
+    DBG("TESTLED: cycling colors, %lums per step, brightness %d\n", delayMs, brightness);
+    ledTest(delayMs, brightness);
 }
 
 static void handleSaveCfg(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)

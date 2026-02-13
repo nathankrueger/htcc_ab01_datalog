@@ -85,8 +85,12 @@ uint8_t       spreadFactor;   /* SF7-SF12 */
 uint8_t       loraBW;         /* 0=125kHz, 1=250kHz, 2=500kHz */
 uint32_t      n2gFreqHz;      /* Node-to-Gateway frequency (Hz) */
 uint32_t      g2nFreqHz;      /* Gateway-to-Node frequency (Hz) */
+uint16_t      sensorRateSec;  /* Seconds between sensor TX */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
+
+/* Sensor TX timing — tracks when we last sent sensor data */
+static unsigned long lastSensorTxTime = 0;
 
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
@@ -312,6 +316,7 @@ void setup(void)
     loraBW        = cfg.bandwidth;
     n2gFreqHz     = cfg.n2gFrequencyHz;
     g2nFreqHz     = cfg.g2nFrequencyHz;
+    sensorRateSec = cfg.sensorRateSec;
 
     /* BME280 sensor */
     sensorInit();
@@ -333,60 +338,73 @@ void setup(void)
     cmdRegistryInit(&cmdRegistry, cfg.nodeId);
     commandsInit(&cmdRegistry);
 
-    DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
-        cfg.nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent);
+    DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%, sensor_rate=%ds)\n",
+        cfg.nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent, sensorRateSec);
 }
 
 void loop(void)
 {
     unsigned long cycleStart = millis();
 
-    /* ── Sample sensor ── */
-    if (!sensorAvailable()) {
-        DBGLN("BME280 not available — retrying...");
-        sensorInit();
-        delay(CYCLE_PERIOD_MS);
-        return;
-    }
+    /* ── Decide whether to sample + TX this cycle ── */
+    if (sensorRateSec == 0) sensorRateSec = 1;  /* safety: avoid degenerate case */
+    unsigned long sensorIntervalMs = (unsigned long)sensorRateSec * 1000UL;
+    bool doSensorTx = (lastSensorTxTime == 0) ||
+                      (cycleStart - lastSensorTxTime >= sensorIntervalMs);
 
-    Reading readings[SENSOR_MAX_READINGS];
-    int nRead = sensorRead(readings, SENSOR_MAX_READINGS);
-    if (nRead <= 0) {
-        DBGLN("ERROR: sensor read failed, skipping cycle");
-        delay(CYCLE_PERIOD_MS);
-        return;
-    }
+    if (doSensorTx) {
+        /* ── Sample sensor ── */
+        if (!sensorAvailable()) {
+            DBGLN("BME280 not available — retrying...");
+            sensorInit();
+            delay(CYCLE_PERIOD_MS);
+            return;
+        }
 
-    /* ── Build and send sensor packets ── */
-    char pkt[LORA_MAX_PAYLOAD + 1];
-    int offset = 0;
+        Reading readings[SENSOR_MAX_READINGS];
+        int nRead = sensorRead(readings, SENSOR_MAX_READINGS);
+        if (nRead <= 0) {
+            DBGLN("ERROR: sensor read failed, skipping cycle");
+            delay(CYCLE_PERIOD_MS);
+            return;
+        }
 
-    while (offset < nRead) {
-        int nextOffset;
-        int pLen = sensorPack(cfg.nodeId, readings, nRead,
-                              offset, &nextOffset, pkt, sizeof(pkt));
-        if (pLen == 0) {
-            DBG("ERROR: reading \"%s\" alone exceeds max payload\n",
-                readings[offset].name);
+        /* ── Build and send sensor packets ── */
+        char pkt[LORA_MAX_PAYLOAD + 1];
+        int offset = 0;
+
+        while (offset < nRead) {
+            int nextOffset;
+            int pLen = sensorPack(cfg.nodeId, readings, nRead,
+                                  offset, &nextOffset, pkt, sizeof(pkt));
+            if (pLen == 0) {
+                DBG("ERROR: reading \"%s\" alone exceeds max payload\n",
+                    readings[offset].name);
+                offset = nextOffset;
+                continue;
+            }
+
+            /* Send and wait for TX completion */
+            txDone = false;
+            Radio.Send((uint8_t *)pkt, pLen);
+            DBG("Sent %d/%d readings [%d bytes]\n",
+                nextOffset - offset, nRead, pLen);
+
+            unsigned long txStart = millis();
+            while (!txDone && (millis() - txStart) < 3000) {
+                Radio.IrqProcess();
+                delay(1);
+            }
+
             offset = nextOffset;
-            continue;
+            if (offset < nRead)
+                delay(100);   /* brief gap between split packets */
         }
 
-        /* Send and wait for TX completion */
-        txDone = false;
-        Radio.Send((uint8_t *)pkt, pLen);
-        DBG("Sent %d/%d readings [%d bytes]\n",
-            nextOffset - offset, nRead, pLen);
-
-        unsigned long txStart = millis();
-        while (!txDone && (millis() - txStart) < 3000) {
-            Radio.IrqProcess();
-            delay(1);
-        }
-
-        offset = nextOffset;
-        if (offset < nRead)
-            delay(100);   /* brief gap between split packets */
+        lastSensorTxTime = cycleStart;
+    } else {
+        DBG("RX-only cycle (next TX in %lus)\n",
+            (sensorIntervalMs - (cycleStart - lastSensorTxTime)) / 1000);
     }
 
     /* ── Tick loop: RX + housekeeping until cycle ends ── */

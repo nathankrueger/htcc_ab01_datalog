@@ -25,6 +25,7 @@ extern uint8_t       spreadFactor;
 extern uint8_t       loraBW;
 extern uint32_t      n2gFreqHz;
 extern uint32_t      g2nFreqHz;
+extern uint16_t      sensorRateSec;
 extern bool          blinkActive;
 extern unsigned long blinkOffTime;
 extern int16_t       lastRxRssi;

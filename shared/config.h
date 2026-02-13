@@ -53,6 +53,10 @@
 #define G2N_FREQUENCY_DEFAULT    RF_G2N_FREQUENCY  /* 915.5 MHz, from radio.h */
 #endif
 
+#ifndef SENSOR_RATE_SEC_DEFAULT
+#define SENSOR_RATE_SEC_DEFAULT  5                  /* seconds between sensor TX */
+#endif
+
 #ifndef UPDATE_CFG
 #define UPDATE_CFG               0
 #endif
@@ -76,6 +80,7 @@ static inline void cfgDefaults(NodeConfig *c)
     c->bandwidth       = BANDWIDTH_DEFAULT;
     c->n2gFrequencyHz  = N2G_FREQUENCY_DEFAULT;
     c->g2nFrequencyHz  = G2N_FREQUENCY_DEFAULT;
+    c->sensorRateSec   = SENSOR_RATE_SEC_DEFAULT;
 }
 
 /*

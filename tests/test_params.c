@@ -22,6 +22,7 @@ static NodeConfig testCfg;
 static uint16_t   testNodeVersion;
 static uint8_t    testBW;
 static uint8_t    testRxDuty;
+static uint16_t   testSensorRateSec;
 static uint8_t    testSF;
 static int8_t     testTxPwr;
 
@@ -32,12 +33,13 @@ static void testOnSetRadio(const char *name) { (void)name; onSetCallCount++; }
 
 /* Standard param table (alpha-sorted by name) */
 static const ParamDef testTable[] = {
-    { "bw",      PARAM_UINT8,  &testBW,               0,   2, true,  testOnSetRadio,  offsetof(NodeConfig, bandwidth)        },
-    { "nodeid",  PARAM_STRING, testCfg.nodeId,         0,   0, false, NULL,            CFG_OFFSET_NONE                        },
-    { "nodev",   PARAM_UINT16, &testNodeVersion,        0,   0, false, NULL,            CFG_OFFSET_NONE                        },
-    { "rxduty",  PARAM_UINT8,  &testRxDuty,            0, 100, true,  NULL,            offsetof(NodeConfig, rxDutyPercent)     },
-    { "sf",      PARAM_UINT8,  &testSF,                7,  12, true,  testOnSetRadio,  offsetof(NodeConfig, spreadingFactor)   },
-    { "txpwr",   PARAM_INT8,   &testTxPwr,           -17,  22, true,  testOnSetTxPwr,  offsetof(NodeConfig, txOutputPower)     },
+    { "bw",              PARAM_UINT8,  &testBW,             NULL,  0,    2, true,  testOnSetRadio,  offsetof(NodeConfig, bandwidth)        },
+    { "nodeid",          PARAM_STRING, testCfg.nodeId,      NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
+    { "nodev",           PARAM_UINT16, &testNodeVersion,    NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
+    { "rxduty",          PARAM_UINT8,  &testRxDuty,         NULL,  0,  100, true,  NULL,            offsetof(NodeConfig, rxDutyPercent)     },
+    { "sensor_rate_sec", PARAM_UINT16, &testSensorRateSec,  NULL,  1, 3600, true,  NULL,            offsetof(NodeConfig, sensorRateSec)    },
+    { "sf",              PARAM_UINT8,  &testSF,             NULL,  7,   12, true,  testOnSetRadio,  offsetof(NodeConfig, spreadingFactor)   },
+    { "txpwr",           PARAM_INT8,   &testTxPwr,          NULL, -17,  22, true,  testOnSetTxPwr,  offsetof(NodeConfig, txOutputPower)     },
 };
 #define TEST_TABLE_COUNT (sizeof(testTable) / sizeof(testTable[0]))
 
@@ -52,6 +54,8 @@ static void resetFixtures(void)
     testCfg.bandwidth = 0;
     testBW = 0;
     testRxDuty = 90;
+    testSensorRateSec = 5;
+    testCfg.sensorRateSec = 5;
     testSF = 7;
     testTxPwr = 14;
     onSetCallCount = 0;
@@ -204,7 +208,7 @@ TEST(test_paramsList_all_fit)
     char buf[256];
     int n = paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"bw\":0,\"nodeid\":\"ab01\",\"nodev\":1,\"rxduty\":90,\"sf\":7,\"txpwr\":14}}", buf);
+    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"bw\":0,\"nodeid\":\"ab01\",\"nodev\":1,\"rxduty\":90,\"sensor_rate_sec\":5,\"sf\":7,\"txpwr\":14}}", buf);
     TEST_PASS();
 }
 
@@ -250,7 +254,7 @@ TEST(test_paramsList_offset_mid)
     char buf[256];
     int n = paramsList(testTable, TEST_TABLE_COUNT, 4, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"sf\":7,\"txpwr\":14}}", buf);
+    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"sensor_rate_sec\":5,\"sf\":7,\"txpwr\":14}}", buf);
     TEST_PASS();
 }
 
@@ -259,23 +263,26 @@ TEST(test_paramsList_alpha_order)
     resetFixtures();
     char buf[256];
     paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
-    /* Verify keys appear in alphabetical order: bw < nodeid < nodev < rxduty < sf < txpwr */
-    const char *bw     = strstr(buf, "\"bw\"");
-    const char *nodeid = strstr(buf, "\"nodeid\"");
-    const char *nodev  = strstr(buf, "\"nodev\"");
-    const char *rxduty = strstr(buf, "\"rxduty\"");
-    const char *sf     = strstr(buf, "\"sf\"");
-    const char *txpwr  = strstr(buf, "\"txpwr\"");
+    /* Verify keys appear in alphabetical order */
+    const char *bw              = strstr(buf, "\"bw\"");
+    const char *nodeid          = strstr(buf, "\"nodeid\"");
+    const char *nodev           = strstr(buf, "\"nodev\"");
+    const char *rxduty          = strstr(buf, "\"rxduty\"");
+    const char *sensor_rate_sec = strstr(buf, "\"sensor_rate_sec\"");
+    const char *sf              = strstr(buf, "\"sf\"");
+    const char *txpwr           = strstr(buf, "\"txpwr\"");
     ASSERT_TRUE(bw != NULL);
     ASSERT_TRUE(nodeid != NULL);
     ASSERT_TRUE(nodev != NULL);
     ASSERT_TRUE(rxduty != NULL);
+    ASSERT_TRUE(sensor_rate_sec != NULL);
     ASSERT_TRUE(sf != NULL);
     ASSERT_TRUE(txpwr != NULL);
     ASSERT_TRUE(bw < nodeid);
     ASSERT_TRUE(nodeid < nodev);
     ASSERT_TRUE(nodev < rxduty);
-    ASSERT_TRUE(rxduty < sf);
+    ASSERT_TRUE(rxduty < sensor_rate_sec);
+    ASSERT_TRUE(sensor_rate_sec < sf);
     ASSERT_TRUE(sf < txpwr);
     TEST_PASS();
 }
@@ -343,6 +350,7 @@ TEST(test_syncToConfig_copies_writable)
 {
     resetFixtures();
     testRxDuty = 42;
+    testSensorRateSec = 30;
     testTxPwr = -5;
     testSF = 12;
     testBW = 2;
@@ -352,6 +360,7 @@ TEST(test_syncToConfig_copies_writable)
 
     paramsSyncToConfig(testTable, TEST_TABLE_COUNT, &dst);
     ASSERT_INT_EQ(42, dst.rxDutyPercent);
+    ASSERT_INT_EQ(30, dst.sensorRateSec);
     ASSERT_INT_EQ(-5, dst.txOutputPower);
     ASSERT_INT_EQ(12, dst.spreadingFactor);
     ASSERT_INT_EQ(2, dst.bandwidth);
@@ -376,6 +385,60 @@ TEST(test_syncToConfig_skips_readonly)
     ASSERT_INT_EQ(0xFF, dst.magic);
     ASSERT_INT_EQ(0xFF, dst.cfgVersion);
     ASSERT_INT_EQ(0xFF, (uint8_t)dst.nodeId[0]);
+    TEST_PASS();
+}
+
+/* ─── paramsApplyStaged Tests ────────────────────────────────────────────── */
+
+/* Separate table with runtimePtr set for staged-param testing */
+static uint8_t stagedBW = 0;
+static uint8_t stagedSF = 7;
+static int8_t  stagedTxPwr = 14;
+static NodeConfig stagedCfg;
+
+static const ParamDef stagedTable[] = {
+    { "bw",    PARAM_UINT8, &stagedCfg.bandwidth,        &stagedBW,    0,   2, true, NULL, offsetof(NodeConfig, bandwidth)       },
+    { "rxduty", PARAM_UINT8, &stagedBW,                  NULL,         0, 100, true, NULL, offsetof(NodeConfig, rxDutyPercent)    },
+    { "sf",    PARAM_UINT8, &stagedCfg.spreadingFactor,  &stagedSF,    7,  12, true, NULL, offsetof(NodeConfig, spreadingFactor)  },
+    { "txpwr", PARAM_INT8,  &stagedCfg.txOutputPower,    &stagedTxPwr, -17, 22, true, NULL, offsetof(NodeConfig, txOutputPower)   },
+};
+#define STAGED_TABLE_COUNT (sizeof(stagedTable) / sizeof(stagedTable[0]))
+
+TEST(test_paramsApplyStaged)
+{
+    /* Set cfg fields to new values (simulating setparam on staged params) */
+    memset(&stagedCfg, 0, sizeof(stagedCfg));
+    stagedCfg.bandwidth = 2;
+    stagedCfg.spreadingFactor = 10;
+    stagedCfg.txOutputPower = -5;
+
+    /* Runtime globals still at old values */
+    stagedBW = 0;
+    stagedSF = 7;
+    stagedTxPwr = 14;
+
+    /* Apply staged params */
+    paramsApplyStaged(stagedTable, STAGED_TABLE_COUNT);
+
+    /* Staged params (runtimePtr != NULL) should be updated */
+    ASSERT_INT_EQ(2, stagedBW);
+    ASSERT_INT_EQ(10, stagedSF);
+    ASSERT_INT_EQ(-5, stagedTxPwr);
+    TEST_PASS();
+}
+
+TEST(test_paramsApplyStaged_skips_immediate)
+{
+    /* rxduty in stagedTable has runtimePtr = NULL (immediate param) */
+    memset(&stagedCfg, 0, sizeof(stagedCfg));
+    stagedBW = 42;  /* rxduty entry's ptr points here */
+
+    paramsApplyStaged(stagedTable, STAGED_TABLE_COUNT);
+
+    /* stagedBW should NOT be overwritten by paramsApplyStaged for the
+     * rxduty entry (runtimePtr is NULL) — but it IS the runtimePtr target
+     * for the bw entry. bw's ptr is &stagedCfg.bandwidth which is 0. */
+    ASSERT_INT_EQ(0, stagedBW);  /* overwritten by bw's staged apply */
     TEST_PASS();
 }
 
@@ -421,4 +484,8 @@ void run_param_tests(void)
     /* paramsSyncToConfig */
     RUN_TEST(test_syncToConfig_copies_writable);
     RUN_TEST(test_syncToConfig_skips_readonly);
+
+    /* paramsApplyStaged */
+    RUN_TEST(test_paramsApplyStaged);
+    RUN_TEST(test_paramsApplyStaged_skips_immediate);
 }
