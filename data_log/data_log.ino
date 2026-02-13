@@ -1,6 +1,19 @@
 #include "Arduino.h"
 #include "LoRaWan_APP.h"
 #include "hw.h"
+
+/* ─── CMD/ACK Debug (must be before packets.h) ─────────────────────────── */
+
+#ifndef CMD_DEBUG
+#define CMD_DEBUG 1  /* Enabled for debugging broadcast issue */
+#endif
+
+#if CMD_DEBUG
+  #define CDBG(fmt, ...) Serial.printf("[%lu] " fmt, millis(), ##__VA_ARGS__)
+#else
+  #define CDBG(fmt, ...) ((void)0)
+#endif
+
 #include "packets.h"
 #include "radio.h"
 #include "config.h"
@@ -11,18 +24,6 @@
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
 #include "dbg.h"
-
-/* ─── CMD/ACK Debug ────────────────────────────────────────────────────── */
-
-#ifndef CMD_DEBUG
-#define CMD_DEBUG 0
-#endif
-
-#if CMD_DEBUG
-  #define CDBG(fmt, ...) Serial.printf("[%lu] " fmt, millis(), ##__VA_ARGS__)
-#else
-  #define CDBG(fmt, ...) ((void)0)
-#endif
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 

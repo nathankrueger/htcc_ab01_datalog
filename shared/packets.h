@@ -7,6 +7,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+/* ─── Debug (no-op unless defined before include) ─────────────────────────── */
+#ifndef CDBG
+#define CDBG(fmt, ...) ((void)0)
+#endif
+
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
 #ifndef LORA_MAX_PAYLOAD
@@ -316,22 +321,34 @@ static inline int extractJsonStringArray(const char *json, const char *key,
  */
 static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *out)
 {
-    if (len == 0 || len > LORA_MAX_PAYLOAD) return false;
+    if (len == 0 || len > LORA_MAX_PAYLOAD) {
+        CDBG("PARSE_FAIL len=%zu\n", len);
+        return false;
+    }
 
     /* Null-terminate for string operations */
     char json[LORA_MAX_PAYLOAD + 1];
     memcpy(json, data, len);
     json[len] = '\0';
 
+    CDBG("PARSE_JSON: %s\n", json);
+
     /* Verify this is a command packet */
-    if (!strstr(json, "\"t\":\"cmd\"")) return false;
+    if (!strstr(json, "\"t\":\"cmd\"")) {
+        CDBG("PARSE_FAIL no_cmd_type\n");
+        return false;
+    }
 
     /* Extract fields */
-    if (!extractJsonString(json, "cmd", out->cmd, sizeof(out->cmd)))
+    if (!extractJsonString(json, "cmd", out->cmd, sizeof(out->cmd))) {
+        CDBG("PARSE_FAIL no_cmd\n");
         return false;
+    }
 
-    if (!extractJsonString(json, "c", out->crc, sizeof(out->crc)))
+    if (!extractJsonString(json, "c", out->crc, sizeof(out->crc))) {
+        CDBG("PARSE_FAIL no_crc\n");
         return false;
+    }
 
     /* node_id can be empty string for broadcast */
     if (!extractJsonString(json, "n", out->node_id, sizeof(out->node_id))) {
@@ -339,13 +356,18 @@ static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *
     }
 
     int32_t ts;
-    if (!extractJsonInt(json, "ts", &ts))
+    if (!extractJsonInt(json, "ts", &ts)) {
+        CDBG("PARSE_FAIL no_ts\n");
         return false;
+    }
     out->timestamp = (uint32_t)ts;
 
     /* Extract args array */
     out->arg_count = extractJsonStringArray(json, "a", out->args, CMD_MAX_ARGS);
     if (out->arg_count < 0) out->arg_count = 0;
+
+    CDBG("PARSE_FIELDS cmd=%s n=%s ts=%u argc=%d\n",
+         out->cmd, out->node_id, out->timestamp, out->arg_count);
 
     /*
      * Verify CRC: rebuild JSON with sorted keys (excluding "c")
@@ -354,8 +376,8 @@ static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *
     char crcBuf[LORA_MAX_PAYLOAD];
     int pos = 0;
 
-    /* Build args array string */
-    char argsBuf[128];
+    /* Build args array string - must fit CMD_MAX_ARGS args of CMD_MAX_ARG_LEN each */
+    char argsBuf[LORA_MAX_PAYLOAD];
     int aLen = 0;
     argsBuf[aLen++] = '[';
     for (int i = 0; i < out->arg_count; i++) {
@@ -374,7 +396,15 @@ static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *
     char computedHex[9];
     snprintf(computedHex, sizeof(computedHex), "%08x", computed);
 
-    return strcmp(computedHex, out->crc) == 0;
+    CDBG("PARSE_CRC crcBuf=%s\n", crcBuf);
+    CDBG("PARSE_CRC computed=%s expected=%s\n", computedHex, out->crc);
+
+    if (strcmp(computedHex, out->crc) != 0) {
+        CDBG("PARSE_FAIL crc_mismatch\n");
+        return false;
+    }
+
+    return true;
 }
 
 /* ─── ACK Packet Builder ─────────────────────────────────────────────────── */
