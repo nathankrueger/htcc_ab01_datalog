@@ -289,6 +289,50 @@ TEST(test_paramsList_alpha_order)
     TEST_PASS();
 }
 
+/* ─── paramsTableIsSorted Tests ──────────────────────────────────────────── */
+
+TEST(test_paramsTableIsSorted_valid)
+{
+    ASSERT_TRUE(paramsTableIsSorted(testTable, TEST_TABLE_COUNT));
+    TEST_PASS();
+}
+
+TEST(test_paramsTableIsSorted_unsorted)
+{
+    static const ParamDef unsorted[] = {
+        { "bw",    PARAM_UINT8, NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+        { "txpwr", PARAM_INT8,  NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+        { "sf",    PARAM_UINT8, NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+    };
+    ASSERT_TRUE(!paramsTableIsSorted(unsorted, 3));
+    TEST_PASS();
+}
+
+TEST(test_paramsTableIsSorted_duplicates)
+{
+    static const ParamDef dupes[] = {
+        { "bw", PARAM_UINT8, NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+        { "bw", PARAM_UINT8, NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+    };
+    ASSERT_TRUE(!paramsTableIsSorted(dupes, 2));
+    TEST_PASS();
+}
+
+TEST(test_paramsTableIsSorted_single)
+{
+    static const ParamDef single[] = {
+        { "x", PARAM_UINT8, NULL, NULL, 0, 0, false, NULL, CFG_OFFSET_NONE },
+    };
+    ASSERT_TRUE(paramsTableIsSorted(single, 1));
+    TEST_PASS();
+}
+
+TEST(test_paramsTableIsSorted_empty)
+{
+    ASSERT_TRUE(paramsTableIsSorted(NULL, 0));
+    TEST_PASS();
+}
+
 /* ─── cmdsList Tests ─────────────────────────────────────────────────────── */
 
 static const char *testCmdNames[] = {
@@ -474,6 +518,13 @@ void run_param_tests(void)
     RUN_TEST(test_paramsList_offset_past_end);
     RUN_TEST(test_paramsList_offset_mid);
     RUN_TEST(test_paramsList_alpha_order);
+
+    /* paramsTableIsSorted */
+    RUN_TEST(test_paramsTableIsSorted_valid);
+    RUN_TEST(test_paramsTableIsSorted_unsorted);
+    RUN_TEST(test_paramsTableIsSorted_duplicates);
+    RUN_TEST(test_paramsTableIsSorted_single);
+    RUN_TEST(test_paramsTableIsSorted_empty);
 
     /* cmdsList */
     RUN_TEST(test_cmdsList_all_fit);

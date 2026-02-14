@@ -62,12 +62,12 @@ static const ParamDef paramTable[] = {
     /* Staged radio params: ptr → cfg, runtimePtr → runtime global */
     { "bw",              PARAM_UINT8,  &cfg.bandwidth,        &loraBW,        0,    2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
     { "g2nfreq",         PARAM_UINT32, &cfg.g2nFrequencyHz,   &g2nFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
+    /* Immediate params: ptr → runtime global, runtimePtr = NULL */
+    { "jitter",          PARAM_UINT16, &broadcastAckJitterMs, NULL,            0, 2000, true,  NULL, offsetof(NodeConfig, broadcastAckJitterMs) },
     { "n2gfreq",         PARAM_UINT32, &cfg.n2gFrequencyHz,   &n2gFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
     /* Read-only params: runtimePtr = NULL */
     { "nodeid",          PARAM_STRING, nodeId,                NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
     { "nodev",           PARAM_UINT16, (void *)&nodeVersion,  NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
-    /* Immediate params: ptr → runtime global, runtimePtr = NULL */
-    { "jitter",          PARAM_UINT16, &broadcastAckJitterMs, NULL,            0, 2000, true,  NULL, offsetof(NodeConfig, broadcastAckJitterMs) },
     { "rxduty",          PARAM_UINT8,  &rxDutyPercent,        NULL,            0,  100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)     },
     { "sensor_rate_sec", PARAM_UINT16, &sensorRateSec,        NULL,            1, 3600, true,  NULL, offsetof(NodeConfig, sensorRateSec)    },
     /* Staged radio params (continued) */

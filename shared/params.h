@@ -309,6 +309,22 @@ static inline int cmdsList(const char **cmdNames, int cmdCount,
     return pos;
 }
 
+/* ─── paramsTableIsSorted ────────────────────────────────────────────────── */
+
+/*
+ * Verify that a ParamDef table is in strict alphabetical order by name.
+ * Returns true if sorted, false otherwise.
+ * Use at init time (debug assert) and in unit tests.
+ */
+static inline bool paramsTableIsSorted(const ParamDef *table, int count)
+{
+    for (int i = 1; i < count; i++) {
+        if (strcmp(table[i - 1].name, table[i].name) >= 0)
+            return false;
+    }
+    return true;
+}
+
 /* ─── paramsApplyStaged ──────────────────────────────────────────────────── */
 
 /*
