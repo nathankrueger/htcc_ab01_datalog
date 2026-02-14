@@ -60,7 +60,7 @@
 #endif
 
 #ifndef BROADCAST_ACK_JITTER_DEFAULT
-#define BROADCAST_ACK_JITTER_DEFAULT 500            /* ms, 0 to disable */
+#define BROADCAST_ACK_JITTER_DEFAULT 1000           /* ms, 0 to disable */
 #endif
 
 #ifndef UPDATE_CFG
