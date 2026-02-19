@@ -6,6 +6,7 @@
  */
 
 #include "Arduino.h"
+#include <Wire.h>
 #include <Adafruit_BME280.h>
 #include "sensors.h"
 
@@ -28,24 +29,47 @@
 
 static Adafruit_BME280 bme;
 static bool bmeOk = false;
+static uint8_t bmeAddr = 0;  /* I2C address found during init */
 
 /* ─── Helpers ───────────────────────────────────────────────────────────── */
 
 static float c_to_f(float c) { return c * 9.0f / 5.0f + 32.0f; }
+
+/*
+ * Live I2C probe: send address byte, check for ACK.
+ * Returns true if the device responds on the bus.
+ */
+static bool i2cProbe(uint8_t addr)
+{
+    Wire.beginTransmission(addr);
+    return (Wire.endTransmission() == 0);
+}
 
 /* ─── Public API ────────────────────────────────────────────────────────── */
 
 bool sensorInit(void)
 {
     bmeOk = bme.begin(0x76);
-    if (!bmeOk) bmeOk = bme.begin(0x77);
+    if (bmeOk) { bmeAddr = 0x76; }
+    else {
+        bmeOk = bme.begin(0x77);
+        if (bmeOk) bmeAddr = 0x77;
+    }
     if (!bmeOk) DBGLN("ERROR: BME280 not found on 0x76 or 0x77");
     return bmeOk;
 }
 
 bool sensorAvailable(void)
 {
-    return bmeOk;
+    if (!bmeOk) return false;
+
+    /* Live I2C probe — catches physical disconnection immediately */
+    if (!i2cProbe(bmeAddr)) {
+        DBGLN("ERROR: BME280 not responding on I2C — marking unavailable");
+        bmeOk = false;
+        return false;
+    }
+    return true;
 }
 
 int sensorRead(Reading *readings, int maxReadings)

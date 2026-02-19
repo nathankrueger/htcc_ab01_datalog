@@ -326,8 +326,10 @@ static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *
         return false;
     }
 
-    /* Null-terminate for string operations */
-    char json[LORA_MAX_PAYLOAD + 1];
+    /* Null-terminate for string operations.
+     * Static buffers to reduce peak stack usage.
+     * Safe: only called from main loop, never reentrantly. */
+    static char json[LORA_MAX_PAYLOAD + 1];
     memcpy(json, data, len);
     json[len] = '\0';
 
@@ -373,11 +375,11 @@ static inline bool parseCommand(const uint8_t *data, size_t len, CommandPacket *
      * Verify CRC: rebuild JSON with sorted keys (excluding "c")
      * Key order: a < cmd < n < t < ts
      */
-    char crcBuf[LORA_MAX_PAYLOAD];
+    static char crcBuf[LORA_MAX_PAYLOAD];
     int pos = 0;
 
     /* Build args array string - must fit CMD_MAX_ARGS args of CMD_MAX_ARG_LEN each */
-    char argsBuf[LORA_MAX_PAYLOAD];
+    static char argsBuf[LORA_MAX_PAYLOAD];
     int aLen = 0;
     argsBuf[aLen++] = '[';
     for (int i = 0; i < out->arg_count; i++) {
