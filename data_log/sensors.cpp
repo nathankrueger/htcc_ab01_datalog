@@ -49,6 +49,12 @@ static bool i2cProbe(uint8_t addr)
 
 bool sensorInit(void)
 {
+    /* Full I2C bus reset — tears down the peripheral and reinitializes.
+     * Recovers from stuck SDA (bus lockup after hot-unplug) that a
+     * plain Wire.begin() inside bme.begin() cannot fix. */
+    Wire.end();
+    delay(10);
+
     bmeOk = bme.begin(0x76);
     if (bmeOk) { bmeAddr = 0x76; }
     else {
