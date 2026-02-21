@@ -98,6 +98,12 @@ ifdef WRITE_NODE_ID
   NODE_ID := $(WRITE_NODE_ID)
 endif
 
+# Board-V2 lacks GPIO8; define a placeholder so the DISPLAY library's
+# ST7735 driver compiles (range_test uses SSD1306 only, ST7735 is never called).
+ifeq ($(SKETCH),range_test)
+  NUMERIC_DEFS += -DGPIO8=GPIO0
+endif
+
 ALL_DEFS = $(STRING_DEFS) $(NUMERIC_DEFS)
 
 # Include path for shared headers (packets.h, etc.)
