@@ -107,6 +107,13 @@ static void handleRcfgRadio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int a
 
 /* ─── Command Handlers ──────────────────────────────────────────────────── */
 
+static void handleBatt(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    uint16_t mv = getBatteryVoltage();
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%u}", (unsigned)mv);
+    DBG("BATT: %u mV\n", (unsigned)mv);
+}
+
 static void handlePing(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     DBGLN("PING received");
@@ -287,6 +294,7 @@ void commandsInit(CommandRegistry *reg)
 {
     cmdRegister(reg, "ping",      handlePing,      CMD_SCOPE_ANY, true);
     cmdRegister(reg, "discover",  handlePing,      CMD_SCOPE_BROADCAST, true, true);
+    cmdRegister(reg, "batt",      handleBatt,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "blink",     handleBlink,     CMD_SCOPE_ANY, true);
     cmdRegister(reg, "echo",      handleEcho,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getcmds",   handleGetCmds,   CMD_SCOPE_ANY, false);
