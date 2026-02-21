@@ -12,6 +12,7 @@
 #include "Arduino.h"
 #include "CubeCell_NeoPixel.h"
 #include <string.h>
+#include "wdt.h"
 
 /* ─── Configuration ─────────────────────────────────────────────────────── */
 
@@ -161,9 +162,9 @@ static void ledBlink(LEDColor color, int count, unsigned long periodMs,
 {
     for (int i = 0; i < count; i++) {
         ledSetColorBrightness(color, brightness);
-        delay(periodMs);
+        sleepWdt(periodMs);
         ledOff();
-        if (i < count - 1) delay(periodMs);
+        if (i < count - 1) sleepWdt(periodMs);
     }
 }
 
@@ -193,20 +194,20 @@ static void ledTest(unsigned long delayMs = 5000,
     for (int i = 0; i < numSteps; i++) {
         Serial.printf("  [%d/%d] %s\n", i + 1, numSteps, steps[i].name);
         ledSetColorBrightness(steps[i].color, brightness);
-        delay(delayAmt);
+        sleepWdt(delayAmt);
     }
 
     /* Full-brightness primary test */
     Serial.println("  Full-brightness RGB test");
     Serial.println("    red 255");
     ledSetRGB(255, 0, 0);
-    delay(delayAmt);
+    sleepWdt(delayAmt);
     Serial.println("    green 255");
     ledSetRGB(0, 255, 0);
-    delay(delayAmt);
+    sleepWdt(delayAmt);
     Serial.println("    blue 255");
     ledSetRGB(0, 0, 255);
-    delay(delayAmt);
+    sleepWdt(delayAmt);
 
     ledOff();
     Serial.println("LED test complete");

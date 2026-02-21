@@ -177,16 +177,17 @@ static void handleEcho(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
 
 static void handleReset(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
-    /* Optional delay in seconds (default 0 = immediate) */
+    /* Optional delay in seconds (default 0 = immediate, max 60) */
     float seconds = 0.0f;
     if (arg_count >= 1) {
         seconds = strtof(args[0], NULL);
         if (seconds < 0.0f) seconds = 0.0f;
+        if (seconds > 60.0f) seconds = 60.0f;
     }
 
     DBG("RESET: rebooting in %.1f s...\n", seconds);
     if (seconds > 0.0f)
-        delay((unsigned long)(seconds * 1000.0f));
+        sleepWdt((unsigned long)(seconds * 1000.0f));
     delay(100);  /* let debug output flush */
     NVIC_SystemReset();
 }

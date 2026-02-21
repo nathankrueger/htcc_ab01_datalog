@@ -2,8 +2,8 @@
 # install.sh — bootstrap arduino-cli and all build dependencies for data_log
 #
 # Usage:
-#   ./install.sh            install / update everything (idempotent)
-#   ./install.sh --force    reinstall cores and libraries even if already present
+#   ./install.sh                    install / update everything (idempotent)
+#   ./install.sh -r | --reinstall   nuke installed cores + libraries and reinstall from scratch
 #
 # What it does:
 #   1. Install arduino-cli (if missing)
@@ -37,10 +37,30 @@ log()   { printf "${GREEN}[install]${NC} %s\n" "$*"; }
 warn()  { printf "${YELLOW}[warn]   ${NC} %s\n" "$*"; }
 die()   { printf "${RED}[error]  ${NC} %s\n" "$*" >&2; exit 1; }
 
-FORCE=false
-[[ "${1:-}" == "--force" ]] && FORCE=true
+REINSTALL=false
+[[ "${1:-}" == "--reinstall" || "${1:-}" == "-r" ]] && REINSTALL=true
 
 log "Detected platform: $PLATFORM"
+
+# ─── 0. reinstall: nuke existing cores + libraries ─────────────────────────
+if $REINSTALL; then
+    warn "Reinstall requested — removing installed cores and libraries …"
+    if arduino-cli core list 2>/dev/null | grep -q "CubeCell:CubeCell"; then
+        log "Uninstalling CubeCell core …"
+        arduino-cli core uninstall CubeCell:CubeCell
+    fi
+    for lib in "Adafruit BME280 Library" "Adafruit BusIO" "Adafruit Unified Sensor" "TinyGPSPlus"; do
+        if arduino-cli lib list 2>/dev/null | grep -q "$lib"; then
+            log "Uninstalling $lib …"
+            arduino-cli lib uninstall "$lib"
+        fi
+    done
+    OLD_URLS=$(arduino-cli config dump 2>/dev/null | grep "package_CubeCell_index" | sed 's/^[[:space:]]*- //')
+    for old in $OLD_URLS; do
+        arduino-cli config remove board_manager.additional_urls "$old"
+    done
+    log "Clean slate — proceeding with fresh install"
+fi
 
 # ─── 1. arduino-cli ──────────────────────────────────────────────────────────
 if command -v arduino-cli &>/dev/null; then
@@ -108,7 +128,7 @@ arduino-cli core update-index
 
 # ─── 4. CubeCell core ────────────────────────────────────────────────────────
 INSTALLED_VER=$(arduino-cli core list 2>/dev/null | awk '/CubeCell:CubeCell/{print $2}')
-if ! $FORCE && [[ "$INSTALLED_VER" == "$CUBECELL_VER" ]]; then
+if ! $REINSTALL && [[ "$INSTALLED_VER" == "$CUBECELL_VER" ]]; then
     log "CubeCell Development Framework ${CUBECELL_VER} already installed"
 else
     if [[ -n "$INSTALLED_VER" ]]; then
@@ -122,14 +142,14 @@ fi
 # ─── 5. libraries ─────────────────────────────────────────────────────────────
 # arduino-cli resolves and installs transitive dependencies automatically.
 # Adafruit BME280 pulls in Adafruit BusIO and Adafruit Unified Sensor.
-if ! $FORCE && arduino-cli lib list 2>/dev/null | grep -q "Adafruit BME280"; then
+if ! $REINSTALL && arduino-cli lib list 2>/dev/null | grep -q "Adafruit BME280"; then
     log "Adafruit BME280 Library already installed"
 else
     log "Installing Adafruit BME280 Library (+ dependencies) …"
     arduino-cli lib install "Adafruit BME280 Library"
 fi
 
-if ! $FORCE && arduino-cli lib list 2>/dev/null | grep -q "TinyGPSPlus"; then
+if ! $REINSTALL && arduino-cli lib list 2>/dev/null | grep -q "TinyGPSPlus"; then
     log "TinyGPSPlus Library already installed"
 else
     log "Installing TinyGPSPlus Library …"

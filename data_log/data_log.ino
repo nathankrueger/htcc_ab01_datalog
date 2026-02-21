@@ -161,7 +161,7 @@ static void sendAckAndResumeRx(const char *buf, int len, const char *label,
     if (addJitter && broadcastAckJitterMs > 0) {
         unsigned long jitter = random(1, broadcastAckJitterMs);
         DBG("Broadcast ACK jitter: %lums\n", jitter);
-        delay(jitter);
+        sleepWdt(jitter);
     }
     Radio.Sleep();
     Radio.SetChannel(n2gFreqHz);
