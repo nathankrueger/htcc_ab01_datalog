@@ -20,6 +20,7 @@ set -euo pipefail
 # ─── tunables ─────────────────────────────────────────────────────────────────
 ARDUINO_CLI_VER="1.4.1"
 CUBECELL_URL="https://github.com/HelTecAutomation/CubeCell-Arduino/releases/download/V1.7.1/package_CubeCell_index.json"
+CUBECELL_VER=$(echo "$CUBECELL_URL" | sed 's|.*/download/V\([^/]*\)/.*|\1|')
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ─── platform detection ───────────────────────────────────────────────────────
@@ -86,10 +87,18 @@ else
 fi
 
 # ─── 2. board-package URL ─────────────────────────────────────────────────────
-if arduino-cli config dump 2>/dev/null | grep -q "package_CubeCell_index"; then
-    log "CubeCell board URL already registered"
+if arduino-cli config dump 2>/dev/null | grep -qF "$CUBECELL_URL"; then
+    log "CubeCell board URL already registered (V${CUBECELL_VER})"
 else
-    log "Registering CubeCell board-package URL …"
+    # Remove any old CubeCell URLs, then add the correct one
+    OLD_URLS=$(arduino-cli config dump 2>/dev/null | grep "package_CubeCell_index" | sed 's/^[[:space:]]*- //')
+    for old in $OLD_URLS; do
+        if [[ "$old" != "$CUBECELL_URL" ]]; then
+            log "Removing old CubeCell board URL: $old"
+            arduino-cli config remove board_manager.additional_urls "$old"
+        fi
+    done
+    log "Registering CubeCell board-package URL (V${CUBECELL_VER}) …"
     arduino-cli config add board_manager.additional_urls "$CUBECELL_URL"
 fi
 
@@ -98,11 +107,16 @@ log "Fetching board index …"
 arduino-cli core update-index
 
 # ─── 4. CubeCell core ────────────────────────────────────────────────────────
-if ! $FORCE && arduino-cli core list 2>/dev/null | grep -q "CubeCell:CubeCell"; then
-    log "CubeCell Development Framework already installed"
+INSTALLED_VER=$(arduino-cli core list 2>/dev/null | awk '/CubeCell:CubeCell/{print $2}')
+if ! $FORCE && [[ "$INSTALLED_VER" == "$CUBECELL_VER" ]]; then
+    log "CubeCell Development Framework ${CUBECELL_VER} already installed"
 else
-    log "Installing CubeCell Development Framework …"
-    arduino-cli core install CubeCell:CubeCell
+    if [[ -n "$INSTALLED_VER" ]]; then
+        log "CubeCell ${INSTALLED_VER} installed — upgrading to ${CUBECELL_VER} …"
+    else
+        log "Installing CubeCell Development Framework ${CUBECELL_VER} …"
+    fi
+    arduino-cli core install "CubeCell:CubeCell@${CUBECELL_VER}"
 fi
 
 # ─── 5. libraries ─────────────────────────────────────────────────────────────
