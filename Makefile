@@ -80,7 +80,7 @@ DEFINE_FLAGS = --build-property "compiler.c.extra_flags=$(ALL_DEFS) $(INCLUDE_FL
 
 FQBN_FULL = $(FQBN):LORAWAN_REGION=$(strip $(LORAWAN_REGION)),LORAWAN_RGB=0
 
-.PHONY: all compile upload monitor ensure-usb clean clean-all test
+.PHONY: all compile upload update monitor ensure-usb clean clean-all test
 
 all: compile
 
@@ -132,6 +132,11 @@ upload: compile ensure-usb
 		--build-path "$(BUILD_DIR)" \
 		$(VERBOSE_FLAG) \
 		"data_log/data_log.ino"
+
+update: ensure-usb
+	$(MAKE) clean upload UPDATE_CFG=1
+	@echo "Config written to EEPROM. Reflashing without UPDATE_CFG..."
+	$(MAKE) clean upload UPDATE_CFG=0
 
 monitor: ensure-usb
 	arduino-cli monitor \
