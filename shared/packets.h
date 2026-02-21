@@ -507,7 +507,7 @@ typedef enum {
 /* Callback signature: receives command name and args */
 typedef void (*CommandCallback)(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count);
 
-#define CMD_REGISTRY_MAX 16
+#define CMD_REGISTRY_MAX 20
 
 typedef struct {
     const char      *cmd;       /* Command name to match */

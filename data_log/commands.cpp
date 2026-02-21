@@ -233,6 +233,24 @@ static void handleSaveCfg(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg
     DBG("SAVECFG: %s\n", cmdResponseBuf);
 }
 
+static void handleSample(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    uint16_t count = 1;
+    if (arg_count >= 1) {
+        long val = atol(args[0]);
+        if (val == 0) {
+            forceSampleCount = 0;
+            DBG("SAMPLE: cancelled\n");
+            return;
+        }
+        if (val < 1) val = 1;
+        if (val > 100) val = 100;
+        count = (uint16_t)val;
+    }
+    forceSampleCount = count;
+    DBG("SAMPLE: forcing %u sample(s)\n", (unsigned)count);
+}
+
 /* ─── Generic Parameter Command Handlers ─────────────────────────────────── */
 
 static void handleGetParam(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
@@ -309,6 +327,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
+    cmdRegister(reg, "sample",    handleSample,    CMD_SCOPE_ANY, true);
     cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
     cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);

@@ -84,3 +84,9 @@ int sensorPoll(unsigned long now, Reading *out, int maxReadings)
 
     return total;
 }
+
+void sensorResetTimers(void)
+{
+    for (int i = 0; i < slotCount; i++)
+        slots[i].last_tx_time = 0;
+}

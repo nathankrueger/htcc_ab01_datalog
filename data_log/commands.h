@@ -29,6 +29,7 @@ extern uint32_t      g2nFreqHz;
 extern uint16_t      broadcastAckJitterMs;
 extern uint16_t      bme280RateSec;
 extern uint16_t      battRateSec;
+extern uint16_t      forceSampleCount;
 extern bool          blinkActive;
 extern unsigned long blinkOffTime;
 extern int16_t       lastRxRssi;

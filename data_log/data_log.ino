@@ -75,6 +75,7 @@ uint32_t      g2nFreqHz;      /* Gateway-to-Node frequency (Hz) */
 uint16_t      broadcastAckJitterMs; /* Max jitter before ACK (0=off) */
 uint16_t      bme280RateSec;  /* BME280 sample interval (seconds) */
 uint16_t      battRateSec;    /* Battery sample interval (seconds) */
+uint16_t      forceSampleCount = 0; /* >0: force all sensors to sample, decrement each cycle */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
 
@@ -356,6 +357,13 @@ void loop(void)
 {
     unsigned long cycleStart = millis();
 
+    /* ── Force sample: reset all sensor timers if requested ── */
+    if (forceSampleCount > 0) {
+        sensorResetTimers();
+        forceSampleCount--;
+        DBG("Force sample: %u remaining\n", (unsigned)forceSampleCount);
+    }
+
     /* ── Poll sensors — each driver checks its own interval ── */
     Reading readings[SENSOR_MAX_READINGS];
     int nRead = sensorPoll(cycleStart, readings, SENSOR_MAX_READINGS);
@@ -441,6 +449,12 @@ void loop(void)
         if (blinkActive && millis() >= blinkOffTime) {
             ledOff();
             blinkActive = false;
+        }
+
+        /* Fast-cycle if more forced samples are pending */
+        if (forceSampleCount > 0) {
+            DBG("Force sample pending, ending cycle early\n");
+            break;
         }
 
         delay(1);

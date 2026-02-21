@@ -53,6 +53,12 @@ void sensorInitAll(void);
  */
 int sensorPoll(unsigned long now, Reading *out, int maxReadings);
 
+/*
+ * Reset all sensor timers so every driver fires on the next sensorPoll().
+ * Called when a forced sample is requested via the "sample" command.
+ */
+void sensorResetTimers(void);
+
 /* ─── Packet Packing Helper ────────────────────────────────────────────── */
 
 /*
