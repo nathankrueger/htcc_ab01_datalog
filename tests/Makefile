@@ -12,7 +12,7 @@ all: $(TARGET)
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(TARGET): $(SRCS) test_params.c test_sensors.c test_harness.h ../shared/params.h ../shared/packets.h ../shared/config_types.h ../data_log/sensors.h | $(BUILD_DIR)
+$(TARGET): $(SRCS) test_params.c test_sensors.c test_harness.h ../shared/params.h ../shared/packets.h ../shared/config_types.h ../data_log/sensor_drv.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -o $@ $(SRCS)
 
 clean:

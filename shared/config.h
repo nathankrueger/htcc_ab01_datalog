@@ -23,8 +23,8 @@
 
 /* ─── Compile-Time Defaults (overridable via Makefile) ────────────────────── */
 
-#ifndef NODE_ID
-#define NODE_ID                  "ab01"
+#ifndef DEFAULT_NODE_ID
+#define DEFAULT_NODE_ID          "empty"
 #endif
 
 #ifndef NODE_VERSION
@@ -55,8 +55,12 @@
 #define G2N_FREQUENCY_DEFAULT    RF_G2N_FREQUENCY  /* 915.5 MHz, from radio.h */
 #endif
 
-#ifndef SENSOR_RATE_SEC_DEFAULT
-#define SENSOR_RATE_SEC_DEFAULT  5                  /* seconds between sensor TX */
+#ifndef BME280_RATE_SEC_DEFAULT
+#define BME280_RATE_SEC_DEFAULT  30                 /* BME280 sample interval (s) */
+#endif
+
+#ifndef BATT_RATE_SEC_DEFAULT
+#define BATT_RATE_SEC_DEFAULT    60                 /* Battery sample interval (s) */
 #endif
 
 #ifndef BROADCAST_ACK_JITTER_DEFAULT
@@ -77,7 +81,7 @@
 /*
  * Load node ID from the unversioned EEPROM region (offset 0).
  * If NODE_ID_MAGIC is missing (blank/uninitialised), copies compile-time
- * NODE_ID as fallback.  buf must be at least 16 bytes.
+ * DEFAULT_NODE_ID as fallback.  buf must be at least 16 bytes.
  *
  * Call AFTER cfgLoad() (which initialises EEPROM).
  */
@@ -91,7 +95,7 @@ static inline void cfgLoadNodeId(char *buf)
         buf[sizeof(nid.nodeId) - 1] = '\0';
         DBG("[CFG] loadNodeId: EEPROM \"%s\"\n", buf);
     } else {
-        strncpy(buf, NODE_ID, 15);
+        strncpy(buf, DEFAULT_NODE_ID, 15);
         buf[15] = '\0';
         DBG("[CFG] loadNodeId: magic mismatch (0x%02X != 0x%02X), using default \"%s\"\n",
             nid.magic, NODE_ID_MAGIC, buf);
@@ -136,8 +140,9 @@ static inline void cfgDefaults(NodeConfig *c)
     c->bandwidth       = BANDWIDTH_DEFAULT;
     c->n2gFrequencyHz  = N2G_FREQUENCY_DEFAULT;
     c->g2nFrequencyHz  = G2N_FREQUENCY_DEFAULT;
-    c->sensorRateSec   = SENSOR_RATE_SEC_DEFAULT;
     c->broadcastAckJitterMs = BROADCAST_ACK_JITTER_DEFAULT;
+    c->bme280RateSec   = BME280_RATE_SEC_DEFAULT;
+    c->battRateSec     = BATT_RATE_SEC_DEFAULT;
 }
 
 /*

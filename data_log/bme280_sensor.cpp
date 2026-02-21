@@ -1,14 +1,16 @@
 /*
- * sensors.cpp — BME280 sensor logic for data_log sketch
+ * bme280_sensor.cpp — BME280 temperature/pressure/humidity sensor driver
  *
- * Owns the Adafruit_BME280 instance and provides init, read, and
- * packet-building functions.  data_log.ino handles the TX loop.
+ * Reads via I2C (Adafruit_BME280 library).  Produces 3 readings per sample:
+ * Temperature (°F), Pressure (hPa), Humidity (%).  Auto-reinit on disconnect.
  */
+
+#ifdef SENSOR_BME280
 
 #include "Arduino.h"
 #include <Wire.h>
 #include <Adafruit_BME280.h>
-#include "sensors.h"
+#include "bme280_sensor.h"
 
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
@@ -17,11 +19,8 @@
 /* ─── Sensor Config ─────────────────────────────────────────────────────── */
 
 /*
- * Sensor-class IDs are assigned by alphabetical sort of the Python class names
- * at import time in sensors/__init__.py.  Current registry:
- *   0 = BME280TempPressureHumidity
- *   1 = MMA8452Accelerometer
- * If you add a new sensor class on the Python side, re-derive these.
+ * Sensor class ID — matches manual registry in ../data_log/sensors/__init__.py.
+ *   0=BME280, 1=MMA8452, 2=ADS1115, 3=Battery, 4=NEO6MGPS
  */
 #define SENSOR_ID_BME280 0
 
@@ -45,9 +44,9 @@ static bool i2cProbe(uint8_t addr)
     return (Wire.endTransmission() == 0);
 }
 
-/* ─── Public API ────────────────────────────────────────────────────────── */
+/* ─── SensorDriver Interface ───────────────────────────────────────────── */
 
-bool sensorInit(void)
+static int bme280_init(void)
 {
     /* Full I2C bus reset — tears down the peripheral and reinitializes.
      * Recovers from stuck SDA (bus lockup after hot-unplug) that a
@@ -62,25 +61,25 @@ bool sensorInit(void)
         if (bmeOk) bmeAddr = 0x77;
     }
     if (!bmeOk) DBGLN("ERROR: BME280 not found on 0x76 or 0x77");
-    return bmeOk;
+    return bmeOk ? 1 : 0;
 }
 
-bool sensorAvailable(void)
+static int bme280_is_alive(void)
 {
-    if (!bmeOk) return false;
+    if (!bmeOk) return 0;
 
     /* Live I2C probe — catches physical disconnection immediately */
     if (!i2cProbe(bmeAddr)) {
         DBGLN("ERROR: BME280 not responding on I2C — marking unavailable");
         bmeOk = false;
-        return false;
+        return 0;
     }
-    return true;
+    return 1;
 }
 
-int sensorRead(Reading *readings, int maxReadings)
+static int bme280_read(Reading *out, int max)
 {
-    if (!bmeOk || maxReadings < 3) return 0;
+    if (!bmeOk || max < 3) return 0;
 
     float tempF    = c_to_f(bme.readTemperature());   /* °C → °F */
     float pressure = bme.readPressure() / 100.0f;     /* Pa  → hPa */
@@ -107,11 +106,19 @@ int sensorRead(Reading *readings, int maxReadings)
      * The degree sign ° (U+00B0) becomes \u00b0 in the JSON wire bytes.
      * In this C string literal the backslash is escaped once: "\\u00b0F".
      */
-    readings[0] = { "Temperature", SENSOR_ID_BME280, "\\u00b0F", tempF    };
-    readings[1] = { "Pressure",    SENSOR_ID_BME280, "hPa",      pressure };
-    readings[2] = { "Humidity",    SENSOR_ID_BME280, "%",        humidity  };
+    out[0] = { "Temperature", SENSOR_ID_BME280, "\\u00b0F", tempF    };
+    out[1] = { "Pressure",    SENSOR_ID_BME280, "hPa",      pressure };
+    out[2] = { "Humidity",    SENSOR_ID_BME280, "%",        humidity  };
 
     return 3;
 }
 
-/* sensorPack() is static inline in sensors.h (testable without Arduino deps) */
+/* ─── Driver Instance ──────────────────────────────────────────────────── */
+
+extern uint16_t bme280RateSec;
+
+const SensorDriver bme280Driver = {
+    "bme280", bme280_init, bme280_is_alive, bme280_read, &bme280RateSec
+};
+
+#endif /* SENSOR_BME280 */

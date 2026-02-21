@@ -50,8 +50,8 @@ void applyRxConfig(void)
  *   field, runtimePtr → runtime global. setparam updates cfg; rcfg_radio
  *   copies cfg → runtime via paramsApplyStaged().
  *
- *   Non-radio params (rxduty, sensor_rate_sec) are immediate: ptr → runtime
- *   global, runtimePtr = NULL. setparam updates runtime directly.
+ *   Non-radio params (rxduty, bme280_rate, batt_rate) are immediate:
+ *   ptr → runtime global, runtimePtr = NULL. setparam updates runtime directly.
  *
  * Fields: name, type, ptr, runtimePtr, min, max, writable, onSet, cfgOffset
  *   cfgOffset = offsetof(NodeConfig, field) for EEPROM-persisted params
@@ -59,6 +59,13 @@ void applyRxConfig(void)
  */
 static const uint16_t nodeVersion = NODE_VERSION;
 static const ParamDef paramTable[] = {
+    /* Per-sensor sample rate params (conditional on SENSOR_* defines) */
+#ifdef SENSOR_BATT
+    { "batt_rate",       PARAM_UINT16, &battRateSec,          NULL,            1, 32767, true,  NULL, offsetof(NodeConfig, battRateSec)      },
+#endif
+#ifdef SENSOR_BME280
+    { "bme280_rate",     PARAM_UINT16, &bme280RateSec,        NULL,            1, 32767, true,  NULL, offsetof(NodeConfig, bme280RateSec)    },
+#endif
     /* Staged radio params: ptr → cfg, runtimePtr → runtime global */
     { "bw",              PARAM_UINT8,  &cfg.bandwidth,        &loraBW,        0,    2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
     { "g2nfreq",         PARAM_UINT32, &cfg.g2nFrequencyHz,   &g2nFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
@@ -69,7 +76,6 @@ static const ParamDef paramTable[] = {
     { "nodeid",          PARAM_STRING, nodeId,                NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
     { "nodev",           PARAM_UINT16, (void *)&nodeVersion,  NULL,            0,    0, false, NULL, CFG_OFFSET_NONE                        },
     { "rxduty",          PARAM_UINT8,  &rxDutyPercent,        NULL,            0,  100, true,  NULL, offsetof(NodeConfig, rxDutyPercent)     },
-    { "sensor_rate_sec", PARAM_UINT16, &sensorRateSec,        NULL,            1, 3600, true,  NULL, offsetof(NodeConfig, sensorRateSec)    },
     /* Staged radio params (continued) */
     { "sf",              PARAM_UINT8,  &cfg.spreadingFactor,  &spreadFactor,   7,   12, true,  NULL, offsetof(NodeConfig, spreadingFactor)   },
     { "txpwr",           PARAM_INT8,   &cfg.txOutputPower,    &txPower,      -17,   22, true,  NULL, offsetof(NodeConfig, txOutputPower)     },

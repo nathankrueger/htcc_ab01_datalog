@@ -13,7 +13,7 @@
 #include <stdbool.h>
 
 #include "packets.h"
-#include "sensors.h"
+#include "sensor_drv.h"
 #include "test_harness.h"
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
@@ -332,7 +332,7 @@ TEST(test_sensorPack_tiny_buffer)
 
 void run_sensor_tests(void)
 {
-    printf("sensors.h tests:\n");
+    printf("sensor_drv.h tests:\n");
 
     /* Basic packing */
     RUN_TEST(test_sensorPack_three_readings);

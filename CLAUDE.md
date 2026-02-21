@@ -99,7 +99,7 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 
 - **ASR650x TX-FIFO drift:** First 4 bytes of LoRa payload are silently dropped after initial TX. Workaround: 4 leading space bytes prepended (gateway's `json.loads` ignores whitespace).
 - **CubeCell `snprintf %g`:** Doesn't strip trailing zeros. Custom `fmtVal()` in packets.h handles this so CRC stays stable between node and gateway.
-- **Sensor class IDs** (the `"s"` field) are derived from alphabetical sort of Python class names in the companion `data_log` project's `sensors/__init__.py`.
+- **Sensor class IDs** (the `"s"` field) are assigned via a manual append-only registry in the companion `data_log` project's `sensors/__init__.py`. IDs are permanent — never reassign or reuse. Current: 0=BME280, 1=MMA8452, 2=ADS1115, 3=Battery, 4=NEO6MGPS.
 
 ## EEPROM Layout
 

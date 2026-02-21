@@ -23,7 +23,7 @@ static char       testNodeId[16];
 static uint16_t   testNodeVersion;
 static uint8_t    testBW;
 static uint8_t    testRxDuty;
-static uint16_t   testSensorRateSec;
+static uint16_t   testBme280RateSec;
 static uint8_t    testSF;
 static int8_t     testTxPwr;
 
@@ -34,11 +34,11 @@ static void testOnSetRadio(const char *name) { (void)name; onSetCallCount++; }
 
 /* Standard param table (alpha-sorted by name) */
 static const ParamDef testTable[] = {
+    { "bme280_rate",     PARAM_UINT16, &testBme280RateSec,  NULL,  1, 32767, true,  NULL,            offsetof(NodeConfig, bme280RateSec)    },
     { "bw",              PARAM_UINT8,  &testBW,             NULL,  0,    2, true,  testOnSetRadio,  offsetof(NodeConfig, bandwidth)        },
     { "nodeid",          PARAM_STRING, testNodeId,          NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
     { "nodev",           PARAM_UINT16, &testNodeVersion,    NULL,  0,    0, false, NULL,            CFG_OFFSET_NONE                        },
     { "rxduty",          PARAM_UINT8,  &testRxDuty,         NULL,  0,  100, true,  NULL,            offsetof(NodeConfig, rxDutyPercent)     },
-    { "sensor_rate_sec", PARAM_UINT16, &testSensorRateSec,  NULL,  1, 3600, true,  NULL,            offsetof(NodeConfig, sensorRateSec)    },
     { "sf",              PARAM_UINT8,  &testSF,             NULL,  7,   12, true,  testOnSetRadio,  offsetof(NodeConfig, spreadingFactor)   },
     { "txpwr",           PARAM_INT8,   &testTxPwr,          NULL, -17,  22, true,  testOnSetTxPwr,  offsetof(NodeConfig, txOutputPower)     },
 };
@@ -56,8 +56,8 @@ static void resetFixtures(void)
     testCfg.bandwidth = 0;
     testBW = 0;
     testRxDuty = 90;
-    testSensorRateSec = 5;
-    testCfg.sensorRateSec = 5;
+    testBme280RateSec = 5;
+    testCfg.bme280RateSec = 5;
     testSF = 7;
     testTxPwr = 14;
     onSetCallCount = 0;
@@ -210,21 +210,21 @@ TEST(test_paramsList_all_fit)
     char buf[256];
     int n = paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"bw\":0,\"nodeid\":\"ab01\",\"nodev\":1,\"rxduty\":90,\"sensor_rate_sec\":5,\"sf\":7,\"txpwr\":14}}", buf);
+    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"bme280_rate\":5,\"bw\":0,\"nodeid\":\"ab01\",\"nodev\":1,\"rxduty\":90,\"sf\":7,\"txpwr\":14}}", buf);
     TEST_PASS();
 }
 
 TEST(test_paramsList_pagination)
 {
     resetFixtures();
-    /* Buffer too small for all 6 params — forces pagination */
+    /* Buffer too small for all 7 params — forces pagination */
     char buf[50];
     int n = paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
     /* Should have "m":1 indicating more pages */
     ASSERT_TRUE(strstr(buf, "\"m\":1") != NULL);
-    /* Should contain the first params but not all */
-    ASSERT_TRUE(strstr(buf, "\"nodeid\"") != NULL);
+    /* Should contain the first param but not all */
+    ASSERT_TRUE(strstr(buf, "\"bme280_rate\"") != NULL);
     /* Should be valid JSON (starts with { ends with }) */
     ASSERT_TRUE(buf[0] == '{');
     ASSERT_TRUE(buf[n - 1] == '}');
@@ -256,7 +256,7 @@ TEST(test_paramsList_offset_mid)
     char buf[256];
     int n = paramsList(testTable, TEST_TABLE_COUNT, 4, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"sensor_rate_sec\":5,\"sf\":7,\"txpwr\":14}}", buf);
+    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"rxduty\":90,\"sf\":7,\"txpwr\":14}}", buf);
     TEST_PASS();
 }
 
@@ -266,25 +266,25 @@ TEST(test_paramsList_alpha_order)
     char buf[256];
     paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
     /* Verify keys appear in alphabetical order */
+    const char *bme280_rate     = strstr(buf, "\"bme280_rate\"");
     const char *bw              = strstr(buf, "\"bw\"");
     const char *nodeid          = strstr(buf, "\"nodeid\"");
     const char *nodev           = strstr(buf, "\"nodev\"");
     const char *rxduty          = strstr(buf, "\"rxduty\"");
-    const char *sensor_rate_sec = strstr(buf, "\"sensor_rate_sec\"");
     const char *sf              = strstr(buf, "\"sf\"");
     const char *txpwr           = strstr(buf, "\"txpwr\"");
+    ASSERT_TRUE(bme280_rate != NULL);
     ASSERT_TRUE(bw != NULL);
     ASSERT_TRUE(nodeid != NULL);
     ASSERT_TRUE(nodev != NULL);
     ASSERT_TRUE(rxduty != NULL);
-    ASSERT_TRUE(sensor_rate_sec != NULL);
     ASSERT_TRUE(sf != NULL);
     ASSERT_TRUE(txpwr != NULL);
+    ASSERT_TRUE(bme280_rate < bw);
     ASSERT_TRUE(bw < nodeid);
     ASSERT_TRUE(nodeid < nodev);
     ASSERT_TRUE(nodev < rxduty);
-    ASSERT_TRUE(rxduty < sensor_rate_sec);
-    ASSERT_TRUE(sensor_rate_sec < sf);
+    ASSERT_TRUE(rxduty < sf);
     ASSERT_TRUE(sf < txpwr);
     TEST_PASS();
 }
@@ -336,8 +336,9 @@ TEST(test_paramsTableIsSorted_empty)
 /* ─── cmdsList Tests ─────────────────────────────────────────────────────── */
 
 static const char *testCmdNames[] = {
-    "blink", "discover", "echo", "getcmds", "getparam",
-    "getparams", "ping", "reset", "savecfg", "setparam", "testled"
+    "batt", "blink", "discover", "echo", "getcmds", "getparam",
+    "getparams", "ping", "rcfg_radio", "reset", "rssi",
+    "savecfg", "setparam", "testled", "uptime"
 };
 #define TEST_CMD_COUNT (sizeof(testCmdNames) / sizeof(testCmdNames[0]))
 
@@ -346,8 +347,9 @@ TEST(test_cmdsList_all_fit)
     char buf[256];
     int n = cmdsList(testCmdNames, TEST_CMD_COUNT, 0, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"c\":[\"blink\",\"discover\",\"echo\",\"getcmds\",\"getparam\","
-                  "\"getparams\",\"ping\",\"reset\",\"savecfg\",\"setparam\",\"testled\"],\"m\":0}", buf);
+    ASSERT_STR_EQ("{\"c\":[\"batt\",\"blink\",\"discover\",\"echo\",\"getcmds\",\"getparam\","
+                  "\"getparams\",\"ping\",\"rcfg_radio\",\"reset\",\"rssi\","
+                  "\"savecfg\",\"setparam\",\"testled\",\"uptime\"],\"m\":0}", buf);
     TEST_PASS();
 }
 
@@ -375,9 +377,9 @@ TEST(test_cmdsList_empty)
 TEST(test_cmdsList_offset)
 {
     char buf[256];
-    int n = cmdsList(testCmdNames, TEST_CMD_COUNT, 9, buf, sizeof(buf));
+    int n = cmdsList(testCmdNames, TEST_CMD_COUNT, 11, buf, sizeof(buf));
     ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"c\":[\"setparam\",\"testled\"],\"m\":0}", buf);
+    ASSERT_STR_EQ("{\"c\":[\"savecfg\",\"setparam\",\"testled\",\"uptime\"],\"m\":0}", buf);
     TEST_PASS();
 }
 
@@ -396,7 +398,7 @@ TEST(test_syncToConfig_copies_writable)
 {
     resetFixtures();
     testRxDuty = 42;
-    testSensorRateSec = 30;
+    testBme280RateSec = 30;
     testTxPwr = -5;
     testSF = 12;
     testBW = 2;
@@ -406,7 +408,7 @@ TEST(test_syncToConfig_copies_writable)
 
     paramsSyncToConfig(testTable, TEST_TABLE_COUNT, &dst);
     ASSERT_INT_EQ(42, dst.rxDutyPercent);
-    ASSERT_INT_EQ(30, dst.sensorRateSec);
+    ASSERT_INT_EQ(30, dst.bme280RateSec);
     ASSERT_INT_EQ(-5, dst.txOutputPower);
     ASSERT_INT_EQ(12, dst.spreadingFactor);
     ASSERT_INT_EQ(2, dst.bandwidth);

@@ -40,9 +40,10 @@
 
 /*
  * Sensor class ID for GPS readings.
- * Alphabetical sort: BME280=0, MMA8452=1, NEO6MGPS=2.
+ * Manual registry in ../data_log/sensors/__init__.py:
+ *   0=BME280, 1=MMA8452, 2=ADS1115, 3=Battery, 4=NEO6MGPS
  */
-#define SENSOR_ID_GPS            2
+#define SENSOR_ID_GPS            4
 
 #define GPS_BAUD                 9600
 
