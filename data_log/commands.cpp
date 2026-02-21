@@ -251,6 +251,13 @@ static void handleSample(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_
     DBG("SAMPLE: forcing %u sample(s)\n", (unsigned)count);
 }
 
+static void handleRand(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    long val = random(0, 2147483647L);
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%ld}", val);
+    DBG("RAND: %ld\n", val);
+}
+
 /* ─── Generic Parameter Command Handlers ─────────────────────────────────── */
 
 static void handleGetParam(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
@@ -324,6 +331,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getcmds",   handleGetCmds,   CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getparam",  handleGetParam,  CMD_SCOPE_ANY, false);
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "rand",      handleRand,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */

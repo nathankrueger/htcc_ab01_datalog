@@ -339,6 +339,15 @@ void setup(void)
     applyTxConfig();
     applyRxConfig();
 
+    /* Seed PRNG — combine ADC noise, micros() jitter, and radio RSSI */
+    {
+        int16_t rssi = Radio.Rssi(MODEM_LORA);
+        uint32_t seed = (uint32_t)analogRead(ADC) ^ micros() ^ (uint16_t)rssi;
+        randomSeed(seed);
+        DBG("PRNG seed: adc=%d micros=%lu rssi=%d -> 0x%08lX\n",
+            analogRead(ADC), micros(), rssi, seed);
+    }
+
     /* Command registry */
     cmdRegistryInit(&cmdRegistry, nodeId);
     commandsInit(&cmdRegistry);
