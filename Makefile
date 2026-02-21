@@ -48,29 +48,20 @@ VERBOSE_FLAG = $(if $(filter 1,$(VERBOSE)),--verbose,)
 # Define lists — values come from node_config.mk; $(if) skips any that are unset
 # (the C headers' #ifndef defaults take over for missing values).
 STRING_DEFINES  = DEFAULT_NODE_ID LED_ORDER
-NUMERIC_DEFINES = LED_BRIGHTNESS DEBUG CMD_DEBUG UPDATE_CFG NODE_VERSION
+NUMERIC_DEFINES = LED_BRIGHTNESS DEBUG CMD_DEBUG UPDATE_CFG NODE_VERSION \
+    TX_OUTPUT_POWER RX_DUTY_PERCENT_DEFAULT \
+    SPREADING_FACTOR_DEFAULT BANDWIDTH_DEFAULT \
+    N2G_FREQUENCY_DEFAULT G2N_FREQUENCY_DEFAULT \
+    CYCLE_PERIOD_MS BROADCAST_ACK_JITTER_DEFAULT \
+    BME280_RATE_SEC_DEFAULT BATT_RATE_SEC_DEFAULT
 
 # Build -D flags. $(strip) handles trailing whitespace from inline comments.
+# $(if) skips any that are unset — the C headers' #ifndef defaults take over.
 STRING_DEFS  = $(foreach def,$(STRING_DEFINES),$(if $($(def)),-D$(def)=\"$(strip $($(def)))\"))
 NUMERIC_DEFS = $(foreach def,$(NUMERIC_DEFINES),$(if $($(def)),-D$(def)=$(strip $($(def)))))
 
-# Optional config overrides — only added when set (in node_config.mk or CLI).
-ifdef TX_OUTPUT_POWER
-  NUMERIC_DEFS += -DTX_OUTPUT_POWER=$(strip $(TX_OUTPUT_POWER))
-endif
-ifdef RX_DUTY_PERCENT_DEFAULT
-  NUMERIC_DEFS += -DRX_DUTY_PERCENT_DEFAULT=$(strip $(RX_DUTY_PERCENT_DEFAULT))
-endif
 # Convert SENSORS list (from node_config.mk) to -DSENSOR_XXX=1 flags
 SENSOR_DEFS = $(foreach s,$(SENSORS),-DSENSOR_$(shell echo $(s) | tr a-z A-Z)=1)
-
-# Per-sensor rate defaults (only passed when set)
-ifdef BME280_RATE_SEC_DEFAULT
-  SENSOR_DEFS += -DBME280_RATE_SEC_DEFAULT=$(strip $(BME280_RATE_SEC_DEFAULT))
-endif
-ifdef BATT_RATE_SEC_DEFAULT
-  SENSOR_DEFS += -DBATT_RATE_SEC_DEFAULT=$(strip $(BATT_RATE_SEC_DEFAULT))
-endif
 
 # WRITE_NODE_ID: one-time write of node ID to EEPROM.
 # Usage: make upload WRITE_NODE_ID=ab02
