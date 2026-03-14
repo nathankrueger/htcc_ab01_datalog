@@ -33,6 +33,8 @@ extern uint16_t      forceSampleCount;
 extern bool          blinkActive;
 extern unsigned long blinkOffTime;
 extern int16_t       lastRxRssi;
+extern volatile bool deepSleepRequested;
+extern TimerEvent_t  wakeUpTimer;
 
 /* ─── Public Interface ───────────────────────────────────────────────── */
 

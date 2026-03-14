@@ -1,6 +1,7 @@
 #include "Arduino.h"
 #include "LoRaWan_APP.h"
 #include "hw.h"
+#include <Wire.h>
 
 /* ─── CMD/ACK Debug (must be before packets.h) ─────────────────────────── */
 
@@ -27,6 +28,16 @@
 /* ─── Debug Output ──────────────────────────────────────────────────────── */
 
 #include "dbg.h"
+
+/* When no debug output is compiled in, skip Serial entirely —
+ * saves ~100-200µA from the idle UART peripheral. */
+#if DEBUG || CMD_DEBUG
+  #define SERIAL_BEGIN() Serial.begin(115200)
+  #define SERIAL_END()   do { delay(10); Serial.end(); } while (0)
+#else
+  #define SERIAL_BEGIN() ((void)0)
+  #define SERIAL_END()   ((void)0)
+#endif
 
 /* ─── Configuration ──────────────────────────────────────────────────────── */
 
@@ -78,6 +89,13 @@ uint16_t      battRateSec;    /* Battery sample interval (seconds) */
 uint16_t      forceSampleCount = 0; /* >0: force all sensors to sample, decrement each cycle */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
+
+/* Deep sleep state */
+TimerEvent_t wakeUpTimer;
+volatile bool deepSleepRequested = false;
+static volatile bool inDeepSleep = false;
+
+static void onWakeUp(void) { inDeepSleep = false; }
 
 /* Last processed command ID for duplicate detection */
 static char lastCommandId[32] = "";
@@ -295,7 +313,7 @@ void setup(void)
     /* Immediately clear the NeoPixel before it latches garbage */
     ledInit();
 
-    Serial.begin(115200);
+    SERIAL_BEGIN();
 
     /* Load config from EEPROM (or compile-time defaults on first boot).
      * When UPDATE_CFG=1, compile-time values are written to EEPROM.
@@ -352,11 +370,10 @@ void setup(void)
     cmdRegistryInit(&cmdRegistry, nodeId);
     commandsInit(&cmdRegistry);
 
-    /* Watchdog timer — manual feed; resets MCU if main loop stalls.
-     * PSoC4 ILO ~32 kHz, match=0xFFFF → ~2s per match.
-     * Reset after two missed clears → ~4s total timeout.
+    /* Watchdog timer — resets MCU if main loop stalls (~4s timeout).
      * feedInnerWdt() must be called in every busy-wait loop. */
-    innerWdtEnable(false);
+    wdtEnable();
+    TimerInit(&wakeUpTimer, onWakeUp);
 
     DBG("Initialization complete for Node: %s (v%u, tx=%ddBm, rxduty=%d%%)\n",
         nodeId, (unsigned)NODE_VERSION, txPower, rxDutyPercent);
@@ -364,6 +381,35 @@ void setup(void)
 
 void loop(void)
 {
+    /* ── Deep sleep: shut down peripherals, enter lowest-power mode ── */
+    if (deepSleepRequested) {
+        deepSleepRequested = false;
+        inDeepSleep = true;
+
+        /* Shut down everything for minimum current (~3.5µA target) */
+        wdtDisable();
+        Radio.Sleep();
+        ledOff();
+        DBG("Entering deep sleep...\n");
+        SERIAL_END();
+        Wire.end();             /* disable I2C peripheral */
+        digitalWrite(Vext, HIGH); /* power off external sensors (active-low) */
+
+        while (inDeepSleep) {
+            lowPowerHandler();  /* CPU deep sleep — wakes on RTC timer */
+        }
+
+        /* Restore peripherals after wakeup */
+        digitalWrite(Vext, LOW);  /* power on external sensors */
+        delay(1);                 /* let Vext rail stabilise */
+        Wire.begin();             /* restart I2C bus */
+        SERIAL_BEGIN();
+        wdtEnable();
+        Radio.SetChannel(n2gFreqHz);
+        DBG("Woke up from deep sleep\n");
+        return;  /* start fresh cycle — sensors reinit via is_alive() */
+    }
+
     unsigned long cycleStart = millis();
 
     /* ── Force sample: reset all sensor timers if requested ── */

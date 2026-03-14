@@ -251,6 +251,23 @@ static void handleSample(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_
     DBG("SAMPLE: forcing %u sample(s)\n", (unsigned)count);
 }
 
+static void handleSleep(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    uint32_t seconds = 60;  /* default 60s */
+    if (arg_count >= 1) {
+        long val = atol(args[0]);
+        if (val < 1) val = 1;
+        if (val > 86400) val = 86400;  /* max 24 hours */
+        seconds = (uint32_t)val;
+    }
+
+    TimerSetValue(&wakeUpTimer, seconds * 1000);
+    TimerStart(&wakeUpTimer);
+    deepSleepRequested = true;
+
+    DBG("SLEEP: %lu seconds\n", (unsigned long)seconds);
+}
+
 static void handleRand(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     long val = random(0, 2147483647L);
@@ -337,6 +354,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
     cmdRegister(reg, "sample",    handleSample,    CMD_SCOPE_ANY, true);
     cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
+    cmdRegister(reg, "sleep",     handleSleep,     CMD_SCOPE_PRIVATE, true);   /* early_ack: ACK before sleep */
     cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
     cmdRegister(reg, "uptime",    handleUptime,    CMD_SCOPE_ANY, false);     /* late_ack: include uptime in response */

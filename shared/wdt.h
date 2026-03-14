@@ -17,6 +17,26 @@
  * header lacks include guards and defines functions inline, so a
  * second inclusion in the same TU causes redefinition errors. */
 extern void feedInnerWdt();
+extern void innerWdtEnable(bool);
+extern void wdt_isr_ClearPending(void);
+
+/*
+ * Enable the PSoC4 hardware watchdog (~4s timeout).
+ * Pass false for the ILO calibration flag — calibration is slow
+ * and unnecessary for a simple timeout guard.
+ */
+static inline void wdtEnable(void) { innerWdtEnable(false); }
+
+/*
+ * Disable the PSoC4 hardware watchdog.  Must be called before entering
+ * deep sleep (lowPowerHandler), otherwise the WDT fires ~2s in and
+ * resets the MCU.
+ */
+static inline void wdtDisable(void)
+{
+    CySysWdtDisable();
+    wdt_isr_ClearPending();
+}
 
 /*
  * WDT feed interval — half the ~4s hardware timeout.

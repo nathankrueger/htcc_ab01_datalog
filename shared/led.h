@@ -188,29 +188,29 @@ static void ledTest(unsigned long delayMs = 5000,
     };
     const int numSteps = sizeof(steps) / sizeof(steps[0]);
 
-    Serial.printf("LED test: %d colors at brightness %d, %lu ms each\n",
-                  numSteps, brightness, delayAmt);
+    DBG("LED test: %d colors at brightness %d, %lu ms each\n",
+        numSteps, brightness, delayAmt);
 
     for (int i = 0; i < numSteps; i++) {
-        Serial.printf("  [%d/%d] %s\n", i + 1, numSteps, steps[i].name);
+        DBG("  [%d/%d] %s\n", i + 1, numSteps, steps[i].name);
         ledSetColorBrightness(steps[i].color, brightness);
         sleepWdt(delayAmt);
     }
 
     /* Full-brightness primary test */
-    Serial.println("  Full-brightness RGB test");
-    Serial.println("    red 255");
+    DBGLN("  Full-brightness RGB test");
+    DBGLN("    red 255");
     ledSetRGB(255, 0, 0);
     sleepWdt(delayAmt);
-    Serial.println("    green 255");
+    DBGLN("    green 255");
     ledSetRGB(0, 255, 0);
     sleepWdt(delayAmt);
-    Serial.println("    blue 255");
+    DBGLN("    blue 255");
     ledSetRGB(0, 0, 255);
     sleepWdt(delayAmt);
 
     ledOff();
-    Serial.println("LED test complete");
+    DBGLN("LED test complete");
 }
 
 #endif /* LED_H */
