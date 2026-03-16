@@ -27,13 +27,15 @@ G2N_FREQUENCY_DEFAULT = 915500000   # Gateway-to-Node freq (Hz)
 BROADCAST_ACK_JITTER_DEFAULT = 1000 # ACK jitter (ms, 0=disable)
 
 # ─── Sensors ────────────────────────────────────────────────────────────
-# Space-separated list of sensors to enable: bme280 batt
+# Space-separated list of sensors to enable: bme280 batt gps
 SENSORS          = bme280
 # SENSORS          = bme280 batt
+# SENSORS          = bme280 batt gps   # GPS requires DEBUG=0, CMD_DEBUG=0
 
 # Per-sensor sample intervals (seconds, 1-32767)
 BME280_RATE_SEC_DEFAULT = 30
 BATT_RATE_SEC_DEFAULT   = 60
+GPS_RATE_SEC_DEFAULT    = 60
 
 # ─── One-Time Setup (uncomment, upload once, then re-comment) ──────────
 # WRITE_NODE_ID    = ab01        # Writes node ID to EEPROM

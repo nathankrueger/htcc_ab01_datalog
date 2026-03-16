@@ -70,6 +70,9 @@ static const ParamDef paramTable[] = {
     { "bw",              PARAM_UINT8,  &cfg.bandwidth,        &loraBW,        0,    2, true,  NULL, offsetof(NodeConfig, bandwidth)        },
     { "g2nfreq",         PARAM_UINT32, &cfg.g2nFrequencyHz,   &g2nFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, g2nFrequencyHz)   },
     /* Immediate params: ptr → runtime global, runtimePtr = NULL */
+#ifdef SENSOR_GPS
+    { "gps_rate",        PARAM_UINT16, &gpsRateSec,           NULL,            1, 32767, true,  NULL, offsetof(NodeConfig, gpsRateSec)        },
+#endif
     { "jitter",          PARAM_UINT16, &broadcastAckJitterMs, NULL,            0, 2000, true,  NULL, offsetof(NodeConfig, broadcastAckJitterMs) },
     { "n2gfreq",         PARAM_UINT32, &cfg.n2gFrequencyHz,   &n2gFreqHz,     0,    0, true,  NULL, offsetof(NodeConfig, n2gFrequencyHz)   },
     /* Read-only params: runtimePtr = NULL */
@@ -275,6 +278,33 @@ static void handleRand(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
     DBG("RAND: %ld\n", val);
 }
 
+static void handleReadGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    if (arg_count < 1) {
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: pin\"}");
+        return;
+    }
+    int pin = atoi(args[0]);
+    pinMode(pin, INPUT);
+    int val = digitalRead(pin);
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", val);
+    DBG("READGPIO: pin=%d val=%d\n", pin, val);
+}
+
+static void handleWriteGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    if (arg_count < 2) {
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: pin value\"}");
+        return;
+    }
+    int pin = atoi(args[0]);
+    int val = atoi(args[1]);
+    pinMode(pin, OUTPUT);
+    digitalWrite(pin, val ? HIGH : LOW);
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", val ? 1 : 0);
+    DBG("WRITEGPIO: pin=%d val=%d\n", pin, val ? 1 : 0);
+}
+
 /* ─── Generic Parameter Command Handlers ─────────────────────────────────── */
 
 static void handleGetParam(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
@@ -350,6 +380,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rand",      handleRand,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
+    cmdRegister(reg, "readgpio",  handleReadGpio,  CMD_SCOPE_PRIVATE, false);
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
     cmdRegister(reg, "sample",    handleSample,    CMD_SCOPE_ANY, true);
@@ -358,5 +389,6 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
     cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
     cmdRegister(reg, "uptime",    handleUptime,    CMD_SCOPE_ANY, false);     /* late_ack: include uptime in response */
+    cmdRegister(reg, "writegpio", handleWriteGpio, CMD_SCOPE_PRIVATE, false);
     buildCmdNameList(reg);
 }

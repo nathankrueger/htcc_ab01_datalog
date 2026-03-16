@@ -22,6 +22,7 @@
 #include "sensor_drv.h"
 #include "bme280_sensor.h"
 #include "batt_sensor.h"
+#include "gps_sensor.h"
 #include "led.h"
 #include "innerWdt.h"
 
@@ -86,6 +87,7 @@ uint32_t      g2nFreqHz;      /* Gateway-to-Node frequency (Hz) */
 uint16_t      broadcastAckJitterMs; /* Max jitter before ACK (0=off) */
 uint16_t      bme280RateSec;  /* BME280 sample interval (seconds) */
 uint16_t      battRateSec;    /* Battery sample interval (seconds) */
+uint16_t      gpsRateSec;    /* GPS sample interval (seconds) */
 uint16_t      forceSampleCount = 0; /* >0: force all sensors to sample, decrement each cycle */
 bool          blinkActive  = false;
 unsigned long blinkOffTime = 0;
@@ -334,6 +336,7 @@ void setup(void)
     broadcastAckJitterMs = cfg.broadcastAckJitterMs;
     bme280RateSec = cfg.bme280RateSec;
     battRateSec   = cfg.battRateSec;
+    gpsRateSec    = cfg.gpsRateSec;
 
     /* Sensor drivers — register enabled sensors, then init all */
 #ifdef SENSOR_BME280
@@ -341,6 +344,9 @@ void setup(void)
 #endif
 #ifdef SENSOR_BATT
     sensorRegister(&battDriver);
+#endif
+#ifdef SENSOR_GPS
+    sensorRegister(&gpsDriver);
 #endif
     sensorInitAll();
 
@@ -404,6 +410,9 @@ void loop(void)
         delay(1);                 /* let Vext rail stabilise */
         Wire.begin();             /* restart I2C bus */
         SERIAL_BEGIN();
+#ifdef SENSOR_GPS
+        Serial.begin(9600);  /* re-init GPS UART after deep sleep */
+#endif
         wdtEnable();
         Radio.SetChannel(n2gFreqHz);
         DBG("Woke up from deep sleep\n");
@@ -411,6 +420,10 @@ void loop(void)
     }
 
     unsigned long cycleStart = millis();
+
+#ifdef SENSOR_GPS
+    gpsFeed();
+#endif
 
     /* ── Force sample: reset all sensor timers if requested ── */
     if (forceSampleCount > 0) {
@@ -482,6 +495,9 @@ void loop(void)
     while (millis() - cycleStart < CYCLE_PERIOD_MS) {
         Radio.IrqProcess();
         feedInnerWdt();
+#ifdef SENSOR_GPS
+        gpsFeed();
+#endif
 
         /* Handle received packet */
         if (rxDone) {

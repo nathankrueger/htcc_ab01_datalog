@@ -15,7 +15,7 @@
 /* ─── Limits ───────────────────────────────────────────────────────────── */
 
 #define SENSOR_MAX_DRIVERS  4
-#define SENSOR_MAX_READINGS 8
+#define SENSOR_MAX_READINGS 12
 
 /* ─── Driver Interface ─────────────────────────────────────────────────── */
 

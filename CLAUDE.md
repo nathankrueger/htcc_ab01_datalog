@@ -71,15 +71,17 @@ Gateway (RPi Zero 2 W)  ── TCP ──►  Pi5 Dashboard
 **Dual-channel LoRa:** N2G (node-to-gateway, 915 MHz) carries sensor packets and ACKs. G2N (gateway-to-node, 915.5 MHz) carries command packets. This avoids TX/RX collision on a single frequency.
 
 **Main loop cycle** (`CYCLE_PERIOD_MS`, default 5s):
-1. Read BME280 sensor → build JSON packet with CRC-32
-2. TX on N2G frequency
-3. Switch to G2N frequency, listen for commands for up to `rxDutyPercent`% of remaining cycle
-4. Dispatch any received commands, send ACK on N2G
-5. Sleep remaining time
+1. Feed GPS UART (if GPS sensor enabled) + poll all sensor drivers
+2. Build JSON packet(s) with CRC-32 for any readings due
+3. TX on N2G frequency
+4. Switch to G2N frequency, listen for commands for up to `rxDutyPercent`% of remaining cycle (GPS feeding continues during tick loop)
+5. Dispatch any received commands, send ACK on N2G
+6. Sleep remaining time
 
 ## Key Files
 
-- **data_log/data_log.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers, param table, LED control, BME280 reading
+- **data_log/data_log.ino** — Datalog sketch: setup, loop, LoRa callbacks, command handlers, param table, LED control, sensor polling
+- **data_log/gps_sensor.h/cpp** — NEO-6M GPS driver (`#ifdef SENSOR_GPS`), sensor class ID 4. Uses Serial UART at 9600 baud — requires `DEBUG=0` and `CMD_DEBUG=0` (Makefile enforces this). Exposes `gpsFeed()` for continuous NMEA feeding from the main loop
 - **range_test/range_test.ino** — Range test sketch: listens for gateway pings on G2N, displays RSSI on SSD1306 OLED, reads GPS from NEO-6M, sends GPS sensor packet on N2G
 - **shared/packets.h** — Protocol logic: CRC-32 (matches Python `zlib.crc32`), JSON packet construction/parsing, command registry (`cmdRegister`/`cmdDispatch`), Reading struct, `fmtVal()` float formatting
 - **shared/params.h** — Generic parameter registry: `ParamDef` table, `paramGet`/`paramSet`/`paramsList`/`cmdsList`/`paramsSyncToConfig`. All `static inline`, testable without Arduino
@@ -99,6 +101,7 @@ Three packet types: **sensor** (`"r"` array of readings), **command** (`"t":"cmd
 
 - **ASR650x TX-FIFO drift:** First 4 bytes of LoRa payload are silently dropped after initial TX. Workaround: 4 leading space bytes prepended (gateway's `json.loads` ignores whitespace).
 - **CubeCell `snprintf %g`:** Doesn't strip trailing zeros. Custom `fmtVal()` in packets.h handles this so CRC stays stable between node and gateway.
+- **AB01 single UART:** Only one hardware UART (`Serial` on P3_0/P3_1). Programming, debug serial, and GPS all share these pins. Disconnect GPS TX from P3_0 before flashing. When GPS sensor is enabled in data_log, `DEBUG` and `CMD_DEBUG` must be 0.
 - **Sensor class IDs** (the `"s"` field) are assigned via a manual append-only registry in the companion `data_log` project's `sensors/__init__.py`. IDs are permanent — never reassign or reuse. Current: 0=BME280, 1=MMA8452, 2=ADS1115, 3=Battery, 4=NEO6MGPS.
 
 ## EEPROM Layout
@@ -111,15 +114,15 @@ Bytes 0-16:   NodeIdentity — unversioned (survives CFG_VERSION bumps)
   [1-16]  nodeId[16]           — null-terminated identifier
 Bytes 17+:    NodeConfig — versioned (resets when layout changes)
   [17]    CFG_MAGIC (0xCF)     — "has config been written?"
-  [18]    cfgVersion (1)       — "is the layout current?"
-  [19+]   tunable params       — txpwr, rxduty, sf, bw, freqs, sensor_rate
+  [18]    cfgVersion (4)       — "is the layout current?"
+  [19+]   tunable params       — txpwr, rxduty, sf, bw, freqs, sensor_rates
 ```
 
 **Node ID** is stored separately from the versioned config. It is written once via `make upload WRITE_NODE_ID=ab02` and persists across all future `CFG_VERSION` bumps. If never written (blank EEPROM), falls back to compile-time `NODE_ID` default.
 
 **Config validation:** `cfgLoad()` checks both `CFG_MAGIC` and `cfgVersion`. If either doesn't match, compile-time defaults are used.
 
-**`CFG_VERSION`** (currently 1) — **Bump when you add, remove, or reorder fields in `NodeConfig`.** This resets radio/timing params to defaults but **never touches node ID**.
+**`CFG_VERSION`** (currently 4) — **Bump when you add, remove, or reorder fields in `NodeConfig`.** This resets radio/timing params to defaults but **never touches node ID**.
 
 **When to bump `CFG_VERSION`:**
 - Adding a new field to `NodeConfig` (e.g., a new tunable parameter)
@@ -138,7 +141,7 @@ All configurable via Makefile variables (which become `-D` compiler flags) or `#
 - `NODE_ID` (string, default `"ab01"`) — compile-time fallback for blank EEPROM; also used directly by range_test
 - `CYCLE_PERIOD_MS` (default 5000) — cycle period
 - `LED_BRIGHTNESS` (0-255, default 64) — NeoPixel brightness
-- `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros
+- `DEBUG` (0 or 1, default 1) — enables `Serial.printf` debug output via `DBG()`/`DBGLN()`/`DBGP()` macros. **Must be 0 when GPS sensor is enabled** (Makefile enforces this — the AB01 has only one UART, shared between debug output and GPS)
 - `RX_DUTY_PERCENT_DEFAULT` (0-100, default 90) — fraction of cycle spent listening for commands (datalog only)
 
 ## Parameter Registry
@@ -164,9 +167,9 @@ Field testing tool for measuring LoRa reception range. The CubeCell node receive
 - Listens on G2N (915.5 MHz) for ping commands
 - Displays RSSI in large font on SSD1306 (128x64, I2C 0x3C, SDA/SCL)
 - Blinks red NeoPixel LED for 1s on each received ping
-- Reads GPS from NEO-6M via Serial1 (9600 baud, RX=P3_0, TX=P3_1)
+- Reads GPS from NEO-6M via Serial (9600 baud, RX=P3_0, TX=P3_1) — only one UART on AB01
 - Sends ACK + GPS sensor packet on N2G (915.0 MHz)
-- Sensor class ID 2 for GPS readings (Latitude, Longitude, Satellites, RSSI)
+- Sensor class ID 4 for GPS readings (alt, lat, lng, rssi, sats)
 
 **Gateway side** (`../data_log/scripts/range_test.py`):
 - Sends periodic ping commands on G2N

@@ -53,7 +53,7 @@ NUMERIC_DEFINES = LED_BRIGHTNESS DEBUG CMD_DEBUG UPDATE_CFG NODE_VERSION \
     SPREADING_FACTOR_DEFAULT BANDWIDTH_DEFAULT \
     N2G_FREQUENCY_DEFAULT G2N_FREQUENCY_DEFAULT \
     CYCLE_PERIOD_MS BROADCAST_ACK_JITTER_DEFAULT \
-    BME280_RATE_SEC_DEFAULT BATT_RATE_SEC_DEFAULT
+    BME280_RATE_SEC_DEFAULT BATT_RATE_SEC_DEFAULT GPS_RATE_SEC_DEFAULT
 
 # Build -D flags. $(strip) handles trailing whitespace from inline comments.
 # $(if) skips any that are unset — the C headers' #ifndef defaults take over.
@@ -62,6 +62,13 @@ NUMERIC_DEFS = $(foreach def,$(NUMERIC_DEFINES),$(if $($(def)),-D$(def)=$(strip 
 
 # Convert SENSORS list (from node_config.mk) to -DSENSOR_XXX=1 flags
 SENSOR_DEFS = $(foreach s,$(SENSORS),-DSENSOR_$(shell echo $(s) | tr a-z A-Z)=1)
+
+# GPS uses the only hardware UART — error if debug serial is also requested
+ifneq ($(filter gps,$(SENSORS)),)
+  ifneq ($(filter 1,$(DEBUG) $(CMD_DEBUG)),)
+    $(error GPS sensor uses Serial for UART — DEBUG and CMD_DEBUG must be 0 when gps is in SENSORS)
+  endif
+endif
 
 # WRITE_NODE_ID: one-time write of node ID to EEPROM.
 # Usage: make upload WRITE_NODE_ID=ab02

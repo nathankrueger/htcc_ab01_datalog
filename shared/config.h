@@ -63,6 +63,10 @@
 #define BATT_RATE_SEC_DEFAULT    60                 /* Battery sample interval (s) */
 #endif
 
+#ifndef GPS_RATE_SEC_DEFAULT
+#define GPS_RATE_SEC_DEFAULT     60                 /* GPS sample interval (s) */
+#endif
+
 #ifndef BROADCAST_ACK_JITTER_DEFAULT
 #define BROADCAST_ACK_JITTER_DEFAULT 1000           /* ms, 0 to disable */
 #endif
@@ -143,6 +147,7 @@ static inline void cfgDefaults(NodeConfig *c)
     c->broadcastAckJitterMs = BROADCAST_ACK_JITTER_DEFAULT;
     c->bme280RateSec   = BME280_RATE_SEC_DEFAULT;
     c->battRateSec     = BATT_RATE_SEC_DEFAULT;
+    c->gpsRateSec      = GPS_RATE_SEC_DEFAULT;
 }
 
 /*
