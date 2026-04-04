@@ -217,25 +217,46 @@ static inline int paramSet(const ParamDef *table, int count,
  *   {"m":0,"p":{"rxduty":90,"txpwr":14}}
  *   {"m":1,"p":{"nodeid":"ab01","nodev":1}}   (more pages remain)
  *
- * offset: index of first param to include (0 for first page).
+ * page: 0-based page number.
  * Greedy packing: includes as many params as fit, sets "m":1 if more remain.
  * Returns bytes written (excluding null), or 0 on buffer overflow.
  */
 static inline int paramsList(const ParamDef *table, int count,
-                             int offset, char *buf, int bufSize)
+                             int page, char *buf, int bufSize)
 {
     /* Minimum output: {"m":0,"p":{}} = 15 chars + null */
     if (bufSize < 16) return 0;
+    if (page < 0) page = 0;
+
+    /* Prefix/suffix overhead: {"m":0,"p":{ = 12, }} = 2, null = 1 */
+    const int prefixLen = 12;
+    const int suffixLen = 3;  /* }} + null */
+
+    /* Simulate pages 0..page-1 to find starting index */
+    int startIdx = 0;
+    for (int p = 0; p < page && startIdx < count; p++) {
+        int simPos = prefixLen;
+        bool simFirst = true;
+        int i;
+        for (i = startIdx; i < count; i++) {
+            char item[80];
+            int itemLen = paramFmtKV(&table[i], item, sizeof(item));
+            if (itemLen == 0) continue;
+            int need = itemLen + (simFirst ? 0 : 1) + suffixLen;
+            if (simPos + need > bufSize) break;
+            simPos += itemLen + (simFirst ? 0 : 1);
+            simFirst = false;
+        }
+        startIdx = i;
+    }
 
     /* Write prefix: {"m":0,"p":{ */
     int pos = snprintf(buf, bufSize, "{\"m\":0,\"p\":{");
     const int morePos = 5;  /* position of '0' in {"m":0 — overwrite to '1' if needed */
 
-    if (offset < 0) offset = 0;
-
     bool first = true;
     int i;
-    for (i = offset; i < count; i++) {
+    for (i = startIdx; i < count; i++) {
         /* Format this param's "key":value into a temp buffer */
         char item[80];
         int itemLen = paramFmtKV(&table[i], item, sizeof(item));
@@ -269,23 +290,42 @@ static inline int paramsList(const ParamDef *table, int count,
  *   {"c":["blink","discover","echo"],"m":0}
  *
  * cmdNames must be pre-sorted alphabetically.
- * offset: index of first command to include (0 for first page).
+ * page: 0-based page number.
  * Returns bytes written (excluding null), or 0 on buffer overflow.
  */
 static inline int cmdsList(const char **cmdNames, int cmdCount,
-                           int offset, char *buf, int bufSize)
+                           int page, char *buf, int bufSize)
 {
     /* Minimum output: {"c":[],"m":0} = 14 chars + null */
     if (bufSize < 15) return 0;
+    if (page < 0) page = 0;
+
+    /* Prefix/suffix overhead: {"c":[ = 6, ],"m":0} = 8, null = 1 */
+    const int prefixLen = 6;
+    const int suffixLen = 9;  /* ],"m":0} + null */
+
+    /* Simulate pages 0..page-1 to find starting index */
+    int startIdx = 0;
+    for (int p = 0; p < page && startIdx < cmdCount; p++) {
+        int simPos = prefixLen;
+        bool simFirst = true;
+        int i;
+        for (i = startIdx; i < cmdCount; i++) {
+            int nameLen = strlen(cmdNames[i]);
+            int need = nameLen + 2 + (simFirst ? 0 : 1) + suffixLen;
+            if (simPos + need > bufSize) break;
+            simPos += nameLen + 2 + (simFirst ? 0 : 1);
+            simFirst = false;
+        }
+        startIdx = i;
+    }
 
     /* Write prefix: {"c":[ */
     int pos = snprintf(buf, bufSize, "{\"c\":[");
 
-    if (offset < 0) offset = 0;
-
     bool first = true;
     int i;
-    for (i = offset; i < cmdCount; i++) {
+    for (i = startIdx; i < cmdCount; i++) {
         int nameLen = strlen(cmdNames[i]);
 
         /* Space needed: "name" + optional comma + closing ],"m":0} + null */

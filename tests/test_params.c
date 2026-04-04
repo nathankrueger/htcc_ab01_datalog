@@ -240,7 +240,7 @@ TEST(test_paramsList_empty)
     TEST_PASS();
 }
 
-TEST(test_paramsList_offset_past_end)
+TEST(test_paramsList_page_past_end)
 {
     resetFixtures();
     char buf[128];
@@ -250,13 +250,22 @@ TEST(test_paramsList_offset_past_end)
     TEST_PASS();
 }
 
-TEST(test_paramsList_offset_mid)
+TEST(test_paramsList_page1)
 {
     resetFixtures();
-    char buf[256];
-    int n = paramsList(testTable, TEST_TABLE_COUNT, 4, buf, sizeof(buf));
-    ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"m\":0,\"p\":{\"rxduty\":90,\"sf\":7,\"txpwr\":14}}", buf);
+    /* Buffer fits ~3 params per page (50 bytes) */
+    char buf[50];
+    int n0 = paramsList(testTable, TEST_TABLE_COUNT, 0, buf, sizeof(buf));
+    ASSERT_TRUE(n0 > 0);
+    ASSERT_TRUE(strstr(buf, "\"m\":1") != NULL);  /* more pages */
+
+    int n1 = paramsList(testTable, TEST_TABLE_COUNT, 1, buf, sizeof(buf));
+    ASSERT_TRUE(n1 > 0);
+    /* Page 1 should NOT contain page 0's first param */
+    ASSERT_TRUE(strstr(buf, "\"bme280_rate\"") == NULL);
+    /* Should still be valid JSON */
+    ASSERT_TRUE(buf[0] == '{');
+    ASSERT_TRUE(buf[n1 - 1] == '}');
     TEST_PASS();
 }
 
@@ -374,16 +383,25 @@ TEST(test_cmdsList_empty)
     TEST_PASS();
 }
 
-TEST(test_cmdsList_offset)
+TEST(test_cmdsList_page1)
 {
-    char buf[256];
-    int n = cmdsList(testCmdNames, TEST_CMD_COUNT, 11, buf, sizeof(buf));
-    ASSERT_TRUE(n > 0);
-    ASSERT_STR_EQ("{\"c\":[\"savecfg\",\"setparam\",\"testled\",\"uptime\"],\"m\":0}", buf);
+    /* 60-byte buffer forces pagination */
+    char buf[60];
+    int n0 = cmdsList(testCmdNames, TEST_CMD_COUNT, 0, buf, sizeof(buf));
+    ASSERT_TRUE(n0 > 0);
+    ASSERT_TRUE(strstr(buf, "\"m\":1") != NULL);  /* more pages */
+    ASSERT_TRUE(strstr(buf, "\"batt\"") != NULL);  /* first cmd on page 0 */
+
+    int n1 = cmdsList(testCmdNames, TEST_CMD_COUNT, 1, buf, sizeof(buf));
+    ASSERT_TRUE(n1 > 0);
+    /* Page 1 should NOT contain page 0's first cmd */
+    ASSERT_TRUE(strstr(buf, "\"batt\"") == NULL);
+    ASSERT_TRUE(buf[0] == '{');
+    ASSERT_TRUE(buf[n1 - 1] == '}');
     TEST_PASS();
 }
 
-TEST(test_cmdsList_offset_past_end)
+TEST(test_cmdsList_page_past_end)
 {
     char buf[128];
     int n = cmdsList(testCmdNames, TEST_CMD_COUNT, 100, buf, sizeof(buf));
@@ -517,8 +535,8 @@ void run_param_tests(void)
     RUN_TEST(test_paramsList_all_fit);
     RUN_TEST(test_paramsList_pagination);
     RUN_TEST(test_paramsList_empty);
-    RUN_TEST(test_paramsList_offset_past_end);
-    RUN_TEST(test_paramsList_offset_mid);
+    RUN_TEST(test_paramsList_page_past_end);
+    RUN_TEST(test_paramsList_page1);
     RUN_TEST(test_paramsList_alpha_order);
 
     /* paramsTableIsSorted */
@@ -532,8 +550,8 @@ void run_param_tests(void)
     RUN_TEST(test_cmdsList_all_fit);
     RUN_TEST(test_cmdsList_pagination);
     RUN_TEST(test_cmdsList_empty);
-    RUN_TEST(test_cmdsList_offset);
-    RUN_TEST(test_cmdsList_offset_past_end);
+    RUN_TEST(test_cmdsList_page1);
+    RUN_TEST(test_cmdsList_page_past_end);
 
     /* paramsSyncToConfig */
     RUN_TEST(test_syncToConfig_copies_writable);
