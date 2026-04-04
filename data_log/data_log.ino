@@ -257,7 +257,7 @@ static void handleRxPacket(void)
 
     /* Look up handler to check earlyAck flag */
     CommandHandler *handler = cmdLookup(&cmdRegistry, &cmd);
-    bool useEarlyAck = (handler == NULL || handler->earlyAck);
+    bool useEarlyAck = (handler != NULL && handler->earlyAck);
     /* Add jitter for ALL broadcast responses to prevent ACK collisions */
     bool is_broadcast = (cmd.node_id[0] == '\0');
     bool addJitter = is_broadcast && broadcastAckJitterMs > 0;
@@ -287,9 +287,12 @@ static void handleRxPacket(void)
             handler->callback(cmd.cmd,
                               (char (*)[CMD_MAX_ARG_LEN])cmd.args,
                               cmd.arg_count);
+        } else {
+            snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
+                     "{\"e\":\"unrecognized_cmd\"}");
         }
 
-        /* For late-ACK handlers, send ACK with response after dispatch */
+        /* For late-ACK handlers (and unrecognized), send ACK with response */
         if (!useEarlyAck) {
             lastAckLen = buildAckPacketWithPayload(lastAckBuf, sizeof(lastAckBuf),
                                                    cmd.timestamp, cmd.crc,

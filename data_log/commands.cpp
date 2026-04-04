@@ -300,7 +300,6 @@ static void handleReadAdc(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg
 {
     /* Disconnect battery voltage divider */
     pinMode(VBAT_ADC_CTL, INPUT);
-    pinMode(ADC, ANALOG);
     int level = analogRead(ADC);
     snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", level);
     DBG("READADC: level=%d\n", level);
@@ -331,7 +330,7 @@ static void handleWriteGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int a
     int val = atoi(args[1]);
     pinMode(pin, OUTPUT);
     digitalWrite(pin, val ? HIGH : LOW);
-    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", val ? 1 : 0);
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"p\":%d,\"r\":%d}", pin, val ? 1 : 0);
     DBG("WRITEGPIO: gpio%s pin=%d val=%d\n", args[0], pin, val ? 1 : 0);
 }
 
@@ -400,26 +399,26 @@ static void handleGetCmds(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg
 
 void commandsInit(CommandRegistry *reg)
 {
-    cmdRegister(reg, "ping",      handlePing,      CMD_SCOPE_ANY, true);
-    cmdRegister(reg, "discover",  handlePing,      CMD_SCOPE_BROADCAST, true, true);
-    cmdRegister(reg, "batt",      handleBatt,      CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "blink",     handleBlink,     CMD_SCOPE_ANY, true);
-    cmdRegister(reg, "echo",      handleEcho,      CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "getcmds",   handleGetCmds,   CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "getparam",  handleGetParam,  CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "rand",      handleRand,      CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "ping",       handlePing,      CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "discover",   handlePing,      CMD_SCOPE_BROADCAST, true, true);
+    cmdRegister(reg, "batt",       handleBatt,      CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "blink",      handleBlink,     CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "echo",       handleEcho,      CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "getcmds",    handleGetCmds,   CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "getparam",   handleGetParam,  CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "getparams",  handleGetParams, CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "rand",       handleRand,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
-    cmdRegister(reg, "readadc",   handleReadAdc,   CMD_SCOPE_ANY, false);
-    cmdRegister(reg, "readgpio",  handleReadGpio,  CMD_SCOPE_PRIVATE, false);
-    cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
-    cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
-    cmdRegister(reg, "sample",    handleSample,    CMD_SCOPE_ANY, true);
-    cmdRegister(reg, "savecfg",   handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
-    cmdRegister(reg, "sleep",     handleSleep,     CMD_SCOPE_PRIVATE, true);   /* early_ack: ACK before sleep */
-    cmdRegister(reg, "setparam",  handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
-    cmdRegister(reg, "testled",   handleTestLed,   CMD_SCOPE_ANY, true);
-    cmdRegister(reg, "uptime",    handleUptime,    CMD_SCOPE_ANY, false);     /* late_ack: include uptime in response */
-    cmdRegister(reg, "writegpio", handleWriteGpio, CMD_SCOPE_PRIVATE, false);
+    cmdRegister(reg, "readadc",    handleReadAdc,   CMD_SCOPE_ANY, false);
+    cmdRegister(reg, "readgpio",   handleReadGpio,  CMD_SCOPE_PRIVATE, false);
+    cmdRegister(reg, "reset",      handleReset,     CMD_SCOPE_PRIVATE, true);
+    cmdRegister(reg, "rssi",       handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
+    cmdRegister(reg, "sample",     handleSample,    CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "savecfg",    handleSaveCfg,   CMD_SCOPE_PRIVATE, false);
+    cmdRegister(reg, "sleep",      handleSleep,     CMD_SCOPE_PRIVATE, true);   /* early_ack: ACK before sleep */
+    cmdRegister(reg, "setparam",   handleSetParam,  CMD_SCOPE_PRIVATE, false);  /* late_ack: get error response */
+    cmdRegister(reg, "testled",    handleTestLed,   CMD_SCOPE_ANY, true);
+    cmdRegister(reg, "uptime",     handleUptime,    CMD_SCOPE_ANY, false);     /* late_ack: include uptime in response */
+    cmdRegister(reg, "writegpio",  handleWriteGpio, CMD_SCOPE_PRIVATE, false);
     buildCmdNameList(reg);
 }
