@@ -278,31 +278,51 @@ static void handleRand(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_co
     DBG("RAND: %ld\n", val);
 }
 
+/* GPIO label → raw ASR650x pin mapping (board silkscreen labels) */
+static const int gpioLabelToPin[] = {
+    GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7
+};
+#define GPIO_LABEL_COUNT (sizeof(gpioLabelToPin) / sizeof(gpioLabelToPin[0]))
+
+/* Resolve a GPIO label (0-7) to raw pin number.  Returns -1 on error. */
+static int resolveGpioPin(const char *arg)
+{
+    int label = atoi(arg);
+    if (label < 0 || label >= (int)GPIO_LABEL_COUNT) {
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE,
+                 "{\"e\":\"gpio 0-%d\"}", (int)GPIO_LABEL_COUNT - 1);
+        return -1;
+    }
+    return gpioLabelToPin[label];
+}
+
 static void handleReadGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 1) {
-        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: pin\"}");
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: gpio#\"}");
         return;
     }
-    int pin = atoi(args[0]);
+    int pin = resolveGpioPin(args[0]);
+    if (pin < 0) return;
     pinMode(pin, INPUT);
     int val = digitalRead(pin);
     snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", val);
-    DBG("READGPIO: pin=%d val=%d\n", pin, val);
+    DBG("READGPIO: gpio%s pin=%d val=%d\n", args[0], pin, val);
 }
 
 static void handleWriteGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 2) {
-        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: pin value\"}");
+        snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"e\":\"usage: gpio# value\"}");
         return;
     }
-    int pin = atoi(args[0]);
+    int pin = resolveGpioPin(args[0]);
+    if (pin < 0) return;
     int val = atoi(args[1]);
     pinMode(pin, OUTPUT);
     digitalWrite(pin, val ? HIGH : LOW);
     snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", val ? 1 : 0);
-    DBG("WRITEGPIO: pin=%d val=%d\n", pin, val ? 1 : 0);
+    DBG("WRITEGPIO: gpio%s pin=%d val=%d\n", args[0], pin, val ? 1 : 0);
 }
 
 /* ─── Generic Parameter Command Handlers ─────────────────────────────────── */
