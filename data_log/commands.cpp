@@ -296,6 +296,16 @@ static int resolveGpioPin(const char *arg)
     return gpioLabelToPin[label];
 }
 
+static void handleReadAdc(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
+{
+    /* Disconnect battery voltage divider */
+    pinMode(VBAT_ADC_CTL, INPUT);
+    pinMode(ADC, ANALOG);
+    int level = analogRead(ADC);
+    snprintf(cmdResponseBuf, CMD_RESPONSE_BUF_SIZE, "{\"r\":%d}", level);
+    DBG("READADC: level=%d\n", level);
+}
+
 static void handleReadGpio(const char *cmd, char args[][CMD_MAX_ARG_LEN], int arg_count)
 {
     if (arg_count < 1) {
@@ -400,6 +410,7 @@ void commandsInit(CommandRegistry *reg)
     cmdRegister(reg, "getparams", handleGetParams, CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rand",      handleRand,      CMD_SCOPE_ANY, false);
     cmdRegister(reg, "rcfg_radio", handleRcfgRadio, CMD_SCOPE_PRIVATE, true);  /* early_ack: ACK before apply */
+    cmdRegister(reg, "readadc",   handleReadAdc,   CMD_SCOPE_ANY, false);
     cmdRegister(reg, "readgpio",  handleReadGpio,  CMD_SCOPE_PRIVATE, false);
     cmdRegister(reg, "reset",     handleReset,     CMD_SCOPE_PRIVATE, true);
     cmdRegister(reg, "rssi",      handleRssi,      CMD_SCOPE_ANY, false);    /* late_ack: report RSSI of this packet */
